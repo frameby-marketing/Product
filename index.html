@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>제품별 주간 성과 대시보드</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1218; --card:#171b23; --text:#e5e7eb; --sub:#9aa3b2;
+    --accent:#3b82f6; --accent2:#fb923c; --border:#262b35;
+    --good:#22c55e; --bad:#f87171;
+    --table-head-bg:#1c2129; --hover-bg:#1b2029; --code-bg:#1c2129;
+    --banner-demo-bg:rgba(251,146,60,0.12); --banner-demo-text:#fdba74; --banner-demo-border:rgba(251,146,60,0.35);
+    --banner-live-bg:rgba(34,197,94,0.12); --banner-live-text:#86efac; --banner-live-border:rgba(34,197,94,0.35);
+  }
+  [data-theme="light"]{
+    --bg:#f5f6f8; --card:#ffffff; --text:#1c1e21; --sub:#6b7280;
+    --accent:#2f6fed; --accent2:#f97316; --border:#e5e7eb;
+    --good:#16a34a; --bad:#dc2626;
+    --table-head-bg:#fafafa; --hover-bg:#fafbfc; --code-bg:#f1f5f9;
+    --banner-demo-bg:#fff7ed; --banner-demo-text:#9a3412; --banner-demo-border:#fed7aa;
+    --banner-live-bg:#ecfdf5; --banner-live-text:#065f46; --banner-live-border:#a7f3d0;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    background:var(--bg); color:var(--text); transition:background .15s,color .15s;
+  }
+  header{
+    padding:24px 32px; background:linear-gradient(135deg,#1f2937,#0b0f16); color:#fff;
+    display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;
+  }
+  header h1{margin:0 0 4px; font-size:22px;}
+  header p{margin:0; color:#cbd5e1; font-size:13px;}
+  #themeToggle{
+    padding:8px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.3);
+    background:rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:13px; font-weight:600;
+    white-space:nowrap;
+  }
+  #themeToggle:hover{background:rgba(255,255,255,0.18);}
+  .wrap{max-width:1180px; margin:0 auto; padding:20px 24px 60px;}
+  .banner{
+    padding:10px 16px; border-radius:8px; font-size:13px; margin-bottom:18px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .banner.demo{background:var(--banner-demo-bg); color:var(--banner-demo-text); border:1px solid var(--banner-demo-border);}
+  .banner.live{background:var(--banner-live-bg); color:var(--banner-live-text); border:1px solid var(--banner-live-border);}
+  .tabs{display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;}
+  .tab-btn{
+    padding:8px 16px; border-radius:20px; border:1px solid var(--border); background:var(--card);
+    cursor:pointer; font-size:13px; font-weight:600; color:var(--sub);
+  }
+  .tab-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .channel-toggle{display:flex; gap:6px; margin-bottom:20px;}
+  .channel-toggle button{
+    padding:6px 14px; border-radius:6px; border:1px solid var(--border); background:var(--card);
+    cursor:pointer; font-size:12.5px; color:var(--sub);
+  }
+  .channel-toggle button.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .kpi-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:20px;}
+  .kpi{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px;}
+  .kpi .label{font-size:12px; color:var(--sub); margin-bottom:6px;}
+  .kpi .value{font-size:22px; font-weight:700; color:var(--text);}
+  .kpi .delta{font-size:12px; margin-top:4px; font-weight:600;}
+  .delta.up{color:var(--good);} .delta.down{color:var(--bad);} .delta.flat{color:var(--sub);}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:20px;}
+  .card h2{font-size:15px; margin:0 0 14px; color:var(--text);}
+  .chart-box{position:relative; height:280px;}
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th,td{padding:8px 10px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; color:var(--text);}
+  th:first-child,td:first-child{text-align:left;}
+  thead th{color:var(--sub); font-weight:600; background:var(--table-head-bg);}
+  tbody tr:hover{background:var(--hover-bg);}
+  .insight p{font-size:13.5px; line-height:1.7; margin:0 0 8px; color:var(--text);}
+  .insight b{color:var(--accent);}
+  details{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:26px;}
+  details summary{cursor:pointer; font-weight:600; font-size:13.5px; color:var(--text);}
+  details .content{margin-top:12px; font-size:13px; line-height:1.8; color:var(--sub);}
+  code{background:var(--code-bg); color:var(--text); padding:2px 6px; border-radius:4px; font-size:12px;}
+  .two-col{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media (max-width:820px){ .two-col{grid-template-columns:1fr;} }
+  .empty{color:var(--sub); font-size:13px; padding:20px; text-align:center;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>제품별 주간 성과 대시보드</h1>
+    <p>2026 자사몰 &amp; 네이버 · 노출/담김/전환 데이터 기반 주간 분석</p>
+  </div>
+  <button id="themeToggle">☀ 라이트 모드</button>
+</header>
+
+<div class="wrap">
+  <div id="statusBanner" class="banner demo">데모 데이터를 표시 중입니다.</div>
+
+  <div id="tabs" class="tabs"></div>
+  <div class="channel-toggle" id="channelToggle">
+    <button data-ch="combined" class="active">통합 (자사몰+네이버)</button>
+    <button data-ch="own">자사몰</button>
+    <button data-ch="naver">네이버</button>
+  </div>
+
+  <div id="kpiGrid" class="kpi-grid"></div>
+
+  <div class="card">
+    <h2 id="exposureTitle">주간 노출수 추이</h2>
+    <div class="chart-box"><canvas id="chartExposure"></canvas></div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h2 id="convTitle">주간 전환율 추이 (전환수 ÷ 노출수)</h2>
+      <div class="chart-box"><canvas id="chartConvRate"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>자사몰 담김율 · 판매율 추이</h2>
+      <div class="chart-box"><canvas id="chartOwnRates"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>인사이트 요약</h2>
+    <div class="insight" id="insightBox"></div>
+  </div>
+
+  <div class="card">
+    <h2>최근 7일 · 14일 · 30일 비교 (직전 동일 기간 대비)</h2>
+    <div style="overflow-x:auto;">
+      <table id="rollingTable"></table>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h2>월별 비교: 이번달 vs 지난달</h2>
+      <div id="monthlyCompareBox"></div>
+    </div>
+    <div class="card">
+      <h2>피크 대비 현재 수준</h2>
+      <div class="insight" id="peakCompareBox"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>주차별 데이터 테이블 (전체 채널)</h2>
+    <div style="overflow-x:auto;">
+      <table id="weeklyTable"></table>
+    </div>
+  </div>
+
+  <details>
+    <summary>실제 구글 스프레드시트와 연동하는 방법</summary>
+    <div class="content">
+      지금은 1월 샘플 데이터로 동작합니다. 실제 시트와 연결하려면:<br><br>
+      1) 구글 시트 우측 상단 <b>공유</b> → "링크가 있는 모든 사용자 - 뷰어"로 권한을 변경합니다.<br>
+      2) 시트 주소창의 URL에서 <code>https://docs.google.com/spreadsheets/d/<b>여기부분</b>/edit</code> 의 <b>여기부분</b>(시트 ID)을 복사합니다.<br>
+      3) 이 파일 상단 스크립트의 <code>CONFIG.SHEET_ID</code> 값에 붙여넣습니다.<br>
+      4) 탭(시트) 이름이 실제로 <code>2026 자사몰</code>, <code>2026 네이버</code>와 정확히 일치하는지 확인합니다 (다르면 CONFIG의 시트명도 함께 수정).<br>
+      5) 파일을 다시 열면 구글 시트에서 실시간으로 데이터를 불러옵니다.<br><br>
+      <b>범위/기간을 별도로 알려주실 필요는 없습니다.</b> 1월 1일부터 12월 31일까지 시트에 있는 데이터를 그대로 읽어서 주차를 자동으로 계산하므로, 데이터가 늘어날수록 대시보드도 자동으로 반영됩니다.<br><br>
+      <b>제품 추가:</b> 기존 제품 블록 오른쪽에 같은 형식(제품명 → 노출수/담김수/전환수/담김율/전환율/판매율 헤더 → 일자별 데이터)으로 이어 붙이면 이 대시보드가 자동으로 인식해 탭이 추가됩니다.
+    </div>
+  </details>
+</div>
+
+<script>
+/* ========================= 설정 ========================= */
+const CONFIG = {
+  SHEET_ID: "",              // 여기에 구글 스프레드시트 ID를 입력하세요 (비워두면 데모 데이터 사용)
+  OWN_SHEET_NAME: "2026 자사몰",
+  NAVER_SHEET_NAME: "2026 네이버",
+  YEAR: 2026
+};
+
+/* ========================= 데모 데이터 ========================= */
+const DEMO_OWN_CSV = `,맥세이프 킥프레임,,,,,
+일자,노출수,담김수,전환수,담김율,전환율,판매율
+1월 1일 목,246,16,6,6.50%,2.44%,37.50%
+1월 2일 금,425,37,9,8.71%,2.12%,24.32%
+1월 3일 토,440,27,7,6.14%,1.59%,25.93%
+1월 4일 일,355,47,21,13.24%,5.92%,44.68%
+1월 5일 월,362,16,6,4.42%,1.66%,37.50%
+1월 6일 화,344,24,11,6.98%,3.20%,45.83%
+1월 7일 수,294,40,15,13.61%,5.10%,37.50%
+1월 8일 목,364,32,16,8.79%,4.40%,50.00%
+1월 9일 금,289,27,9,9.34%,3.11%,33.33%
+1월 10일 토,325,24,9,7.38%,2.77%,37.50%
+1월 11일 일,310,26,14,8.39%,4.52%,53.85%
+1월 12일 월,353,28,11,7.93%,3.12%,39.29%
+1월 13일 화,299,23,8,7.69%,2.68%,34.78%
+1월 14일 수,292,28,7,9.59%,2.40%,25.00%
+1월 15일 목,359,18,8,5.01%,2.23%,44.44%
+1월 16일 금,350,23,10,6.57%,2.86%,43.48%
+1월 17일 토,409,24,9,5.87%,2.20%,37.50%
+1월 18일 일,326,22,10,6.75%,3.07%,45.45%
+1월 19일 월,367,40,17,10.90%,4.63%,42.50%
+1월 20일 화,318,19,6,5.97%,1.89%,31.58%
+1월 21일 수,252,17,9,6.75%,3.57%,52.94%
+1월 22일 목,315,14,6,4.44%,1.90%,42.86%
+1월 23일 금,281,26,10,9.25%,3.56%,38.46%
+1월 24일 토,352,38,13,10.80%,3.69%,34.21%
+1월 25일 일,322,25,12,7.76%,3.73%,48.00%
+1월 26일 월,397,48,19,12.09%,4.79%,39.58%
+1월 27일 화,398,27,10,6.78%,2.51%,37.04%
+1월 28일 수,430,31,14,7.21%,3.26%,45.16%
+1월 29일 목,438,42,16,9.59%,3.65%,38.10%
+1월 30일 금,342,31,12,9.06%,3.51%,38.71%
+1월 31일 토,417,25,9,6.00%,2.16%,36.00%`;
+
+const DEMO_NAVER_CSV = `,맥세이프 킥프레임,,
+일자,노출수,전환수,전환율
+1월 1일 목,368,9,2.45%
+1월 2일 금,512,29,5.66%
+1월 3일 토,477,35,7.34%
+1월 4일 일,489,34,6.95%
+1월 5일 월,464,30,6.47%
+1월 6일 화,398,34,8.54%
+1월 7일 수,333,19,5.71%
+1월 8일 목,371,15,4.04%
+1월 9일 금,310,18,5.81%
+1월 10일 토,284,11,3.87%
+1월 11일 일,328,16,4.88%
+1월 12일 월,325,17,5.23%
+1월 13일 화,282,14,4.96%
+1월 14일 수,350,19,5.43%
+1월 15일 목,285,8,2.81%
+1월 16일 금,254,12,4.72%
+1월 17일 토,226,15,6.64%
+1월 18일 일,361,13,3.60%
+1월 19일 월,275,10,3.64%
+1월 20일 화,304,21,6.91%
+1월 21일 수,281,14,4.98%
+1월 22일 목,227,16,7.05%
+1월 23일 금,249,6,2.41%
+1월 24일 토,247,12,4.86%
+1월 25일 일,293,11,3.75%
+1월 26일 월,240,15,6.25%
+1월 27일 화,240,19,7.92%
+1월 28일 수,231,7,3.03%
+1월 29일 목,219,12,5.48%
+1월 30일 금,180,5,2.78%
+1월 31일 토,195,11,5.64%`;
+
+/* ========================= CSV 파서 ========================= */
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); field = '';
+        if (row.some(v => v !== '')) rows.push(row);
+        row = [];
+      } else field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    if (row.some(v => v !== '')) rows.push(row);
+  }
+  return rows;
+}
+
+function toNum(s) {
+  if (s === undefined || s === null) return null;
+  s = String(s).trim();
+  if (s === '') return null;
+  const n = Number(s.replace(/,/g, '').replace('%', ''));
+  return isNaN(n) ? null : n;
+}
+
+function parseKDate(s, year) {
+  if (!s) return null;
+  const m = String(s).match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (!m) return null;
+  const d = new Date(year, parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+// 헤더 2행(제품명 행, 지표명 행)에서 제품 블록 위치를 감지 (오른쪽으로 나열된 제품 블록 대응)
+function detectBlocks(nameRow, headerRow) {
+  const blocks = [];
+  let currentName = '';
+  for (let i = 1; i < headerRow.length; i++) {
+    const nm = (nameRow[i] || '').trim();
+    if (nm !== '') currentName = nm;
+    const label = (headerRow[i] || '').trim();
+    if (label === '노출수') {
+      blocks.push({ name: currentName || ('제품' + (blocks.length + 1)), start: i, metrics: [label] });
+    } else if (blocks.length > 0 && label !== '') {
+      blocks[blocks.length - 1].metrics.push(label);
+    }
+  }
+  return blocks;
+}
+
+// CSV 전체를 파싱해 { productName: [{date, exposure, add, conversion}, ...] } 형태로 반환
+function parseChannelCSV(csvText, year) {
+  const rows = parseCSV(csvText);
+  if (rows.length < 3) return {};
+  const nameRow = rows[0];
+  const headerRow = rows[1];
+  const blocks = detectBlocks(nameRow, headerRow);
+  const result = {};
+  blocks.forEach(b => { result[b.name] = []; });
+
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r];
+    const dateCell = row[0];
+    const date = parseKDate(dateCell, year);
+    if (!date) continue; // ave/total/빈 행 등은 건너뜀
+    blocks.forEach(b => {
+      const idxExposure = b.start + b.metrics.indexOf('노출수');
+      const idxAdd = b.metrics.indexOf('담김수') >= 0 ? b.start + b.metrics.indexOf('담김수') : -1;
+      const idxConv = b.metrics.indexOf('전환수') >= 0 ? b.start + b.metrics.indexOf('전환수') : -1;
+      const exposure = toNum(row[idxExposure]);
+      if (exposure === null) return;
+      const add = idxAdd >= 0 ? toNum(row[idxAdd]) : null;
+      const conversion = idxConv >= 0 ? toNum(row[idxConv]) : null;
+      result[b.name].push({ date, exposure, add, conversion });
+    });
+  }
+  return result;
+}
+
+/* ========================= 주차 계산 ========================= */
+function mondayOf(date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=일 ... 6=토
+  const diff = (day === 0 ? -6 : 1 - day);
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function fmtMD(d) { return (d.getMonth() + 1) + '/' + d.getDate(); }
+
+function buildWeeklyIndex(allDates) {
+  if (allDates.length === 0) return { firstMonday: null };
+  const minDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+  const firstMonday = mondayOf(minDate);
+  return { firstMonday };
+}
+function weekIndexOf(date, firstMonday) {
+  const diffDays = Math.round((mondayOf(date) - firstMonday) / 86400000);
+  return Math.floor(diffDays / 7) + 1;
+}
+
+/* ========================= 데이터 로드 & 집계 파이프라인 ========================= */
+let STATE = { channels: {}, products: [], weeks: [], weeklyAgg: {}, months: [], monthlyAgg: {}, daily: {}, usingDemo: true };
+
+async function fetchSheetCSV(sheetName) {
+  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('fetch failed: ' + res.status);
+  return await res.text();
+}
+
+async function loadData() {
+  let ownCSV, naverCSV, usingDemo = true;
+  if (CONFIG.SHEET_ID && CONFIG.SHEET_ID.trim() !== '') {
+    try {
+      [ownCSV, naverCSV] = await Promise.all([
+        fetchSheetCSV(CONFIG.OWN_SHEET_NAME),
+        fetchSheetCSV(CONFIG.NAVER_SHEET_NAME)
+      ]);
+      usingDemo = false;
+    } catch (e) {
+      console.warn('실시간 연동 실패, 데모 데이터로 대체합니다.', e);
+      ownCSV = DEMO_OWN_CSV; naverCSV = DEMO_NAVER_CSV; usingDemo = true;
+    }
+  } else {
+    ownCSV = DEMO_OWN_CSV; naverCSV = DEMO_NAVER_CSV; usingDemo = true;
+  }
+
+  const own = parseChannelCSV(ownCSV, CONFIG.YEAR);
+  const naver = parseChannelCSV(naverCSV, CONFIG.YEAR);
+
+  const products = Array.from(new Set([...Object.keys(own), ...Object.keys(naver)]));
+
+  const allDates = [];
+  Object.values(own).forEach(arr => arr.forEach(d => allDates.push(d.date)));
+  Object.values(naver).forEach(arr => arr.forEach(d => allDates.push(d.date)));
+  const { firstMonday } = buildWeeklyIndex(allDates);
+
+  const weeklyAgg = {}; // weeklyAgg[product][channel][weekIdx] = {...}
+  const weekSet = new Set();
+
+  function aggregate(channelKey, dataByProduct) {
+    Object.entries(dataByProduct).forEach(([product, rows]) => {
+      weeklyAgg[product] = weeklyAgg[product] || {};
+      weeklyAgg[product][channelKey] = weeklyAgg[product][channelKey] || {};
+      rows.forEach(r => {
+        const wi = weekIndexOf(r.date, firstMonday);
+        weekSet.add(wi);
+        const bucket = weeklyAgg[product][channelKey][wi] || {
+          exposure: 0, add: 0, conversion: 0, days: 0,
+          weekStart: null, weekEnd: null
+        };
+        bucket.exposure += r.exposure || 0;
+        bucket.add += r.add || 0;
+        bucket.conversion += r.conversion || 0;
+        bucket.days += 1;
+        const ws = mondayOf(r.date);
+        const we = new Date(ws); we.setDate(we.getDate() + 6);
+        bucket.weekStart = ws; bucket.weekEnd = we;
+        weeklyAgg[product][channelKey][wi] = bucket;
+      });
+    });
+  }
+  aggregate('own', own);
+  aggregate('naver', naver);
+
+  const weeks = Array.from(weekSet).sort((a, b) => a - b);
+
+  // 월별 집계 (달력 기준 월)
+  const monthlyAgg = {};
+  const monthSet = new Set();
+  function aggregateMonthly(channelKey, dataByProduct) {
+    Object.entries(dataByProduct).forEach(([product, rows]) => {
+      monthlyAgg[product] = monthlyAgg[product] || {};
+      monthlyAgg[product][channelKey] = monthlyAgg[product][channelKey] || {};
+      rows.forEach(r => {
+        const mk = r.date.getFullYear() * 100 + r.date.getMonth();
+        monthSet.add(mk);
+        const bucket = monthlyAgg[product][channelKey][mk] || {
+          exposure: 0, add: 0, conversion: 0, days: 0,
+          monthStart: new Date(r.date.getFullYear(), r.date.getMonth(), 1),
+          monthEnd: new Date(r.date.getFullYear(), r.date.getMonth() + 1, 0)
+        };
+        bucket.exposure += r.exposure || 0;
+        bucket.add += r.add || 0;
+        bucket.conversion += r.conversion || 0;
+        bucket.days += 1;
+        monthlyAgg[product][channelKey][mk] = bucket;
+      });
+    });
+  }
+  aggregateMonthly('own', own);
+  aggregateMonthly('naver', naver);
+  const months = Array.from(monthSet).sort((a, b) => a - b);
+
+  // 일자별 원본 데이터 (제품별, 채널별, 날짜순 정렬) - 최근 N일 비교용
+  const daily = {};
+  products.forEach(p => {
+    daily[p] = {
+      own: (own[p] || []).slice().sort((a, b) => a.date - b.date),
+      naver: (naver[p] || []).slice().sort((a, b) => a.date - b.date)
+    };
+  });
+
+  STATE = { channels: { own, naver }, products, weeks, weeklyAgg, months, monthlyAgg, daily, usingDemo };
+  return STATE;
+}
+
+/* ========================= 렌더링 ========================= */
+let activeProduct = null;
+let activeChannel = 'combined';
+let charts = {};
+
+function pct(n) { return (n === null || n === undefined || isNaN(n)) ? '-' : (n * 100).toFixed(2) + '%'; }
+function numFmt(n) { return (n === null || n === undefined) ? '-' : Math.round(n).toLocaleString('ko-KR'); }
+
+function weekMeta(wi) {
+  const o = STATE.weeklyAgg[activeProduct]?.own?.[wi];
+  const n = STATE.weeklyAgg[activeProduct]?.naver?.[wi];
+  const b = o || n;
+  if (!b || !b.weekStart) return { label: wi + '주차', short: wi + '주' };
+  const label = wi + '주차 (' + fmtMD(b.weekStart) + '~' + fmtMD(b.weekEnd) + ')';
+  const short = fmtMD(b.weekStart) + '~' + fmtMD(b.weekEnd);
+  return { label, short };
+}
+
+function computeRates(bucket) {
+  if (!bucket) return { convRate: null, addRate: null, sellRate: null };
+  const convRate = bucket.exposure > 0 ? bucket.conversion / bucket.exposure : null;
+  const addRate = bucket.exposure > 0 ? bucket.add / bucket.exposure : null;
+  const sellRate = bucket.add > 0 ? bucket.conversion / bucket.add : null;
+  return { convRate, addRate, sellRate };
+}
+
+function combinedBucket(product, wi) {
+  const o = STATE.weeklyAgg[product]?.own?.[wi];
+  const n = STATE.weeklyAgg[product]?.naver?.[wi];
+  if (!o && !n) return null;
+  return {
+    exposure: (o?.exposure || 0) + (n?.exposure || 0),
+    conversion: (o?.conversion || 0) + (n?.conversion || 0)
+  };
+}
+
+function combinedMonthBucket(product, mk) {
+  const o = STATE.monthlyAgg[product]?.own?.[mk];
+  const n = STATE.monthlyAgg[product]?.naver?.[mk];
+  if (!o && !n) return null;
+  return {
+    exposure: (o?.exposure || 0) + (n?.exposure || 0),
+    add: o?.add || 0,
+    conversion: (o?.conversion || 0) + (n?.conversion || 0),
+    days: Math.max(o?.days || 0, n?.days || 0)
+  };
+}
+
+function monthLabel(mk) {
+  const o = STATE.monthlyAgg[activeProduct]?.own?.[mk];
+  const n = STATE.monthlyAgg[activeProduct]?.naver?.[mk];
+  const b = o || n;
+  if (!b) return mk + '';
+  return (b.monthStart.getMonth() + 1) + '월';
+}
+
+// 채널별/통합 임의 날짜 구간 합산 (최근 N일 비교용)
+function sumDailyRange(product, channel, startDate, endDate) {
+  const arrOwn = STATE.daily[product]?.own || [];
+  const arrNaver = STATE.daily[product]?.naver || [];
+  function sumArr(arr) {
+    let exposure = 0, add = 0, conversion = 0, days = 0;
+    arr.forEach(r => {
+      if (r.date >= startDate && r.date <= endDate) {
+        exposure += r.exposure || 0; add += r.add || 0; conversion += r.conversion || 0; days++;
+      }
+    });
+    return { exposure, add, conversion, days };
+  }
+  if (channel === 'own') return sumArr(arrOwn);
+  if (channel === 'naver') return sumArr(arrNaver);
+  const o = sumArr(arrOwn), n = sumArr(arrNaver);
+  return { exposure: o.exposure + n.exposure, add: o.add, conversion: o.conversion + n.conversion, days: Math.max(o.days, n.days) };
+}
+
+function rangeRates(bucket) {
+  if (!bucket) return { convRate: null, addRate: null, sellRate: null };
+  const convRate = bucket.exposure > 0 ? bucket.conversion / bucket.exposure : null;
+  const addRate = bucket.exposure > 0 ? bucket.add / bucket.exposure : null;
+  const sellRate = bucket.add > 0 ? bucket.conversion / bucket.add : null;
+  return { convRate, addRate, sellRate };
+}
+
+function renderTabs() {
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = '';
+  STATE.products.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn' + (p === activeProduct ? ' active' : '');
+    btn.textContent = p;
+    btn.onclick = () => { activeProduct = p; renderAll(); };
+    tabsEl.appendChild(btn);
+  });
+}
+
+function addKpiCard(grid, label, val, delta, lastW) {
+  const div = document.createElement('div');
+  div.className = 'kpi';
+  div.innerHTML = `<div class="label">${label} (최신 ${lastW}주차)</div>
+    <div class="value">${val}</div>
+    <div class="delta ${delta.cls}">${delta.text}</div>`;
+  grid.appendChild(div);
+}
+
+function renderKPIs() {
+  const grid = document.getElementById('kpiGrid');
+  grid.innerHTML = '';
+  const weeks = STATE.weeks;
+  if (weeks.length === 0) { grid.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+  const lastW = weeks[weeks.length - 1];
+  const prevW = weeks.length > 1 ? weeks[weeks.length - 2] : null;
+
+  if (activeChannel === 'combined') {
+    const cur = combinedBucket(activeProduct, lastW);
+    const prev = prevW !== null ? combinedBucket(activeProduct, prevW) : null;
+    if (!cur) { grid.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+    const curRate = cur.exposure > 0 ? cur.conversion / cur.exposure : null;
+    const prevRate = (prev && prev.exposure > 0) ? prev.conversion / prev.exposure : null;
+    addKpiCard(grid, '통합 노출수', numFmt(cur.exposure), deltaOf(cur.exposure, prev?.exposure), lastW);
+    addKpiCard(grid, '통합 전환수', numFmt(cur.conversion), deltaOf(cur.conversion, prev?.conversion), lastW);
+    addKpiCard(grid, '통합 전환율', pct(curRate), deltaOf(curRate, prevRate, true), lastW);
+  } else {
+    const ch = activeChannel;
+    const chLabel = ch === 'own' ? '자사몰' : '네이버';
+    const cur = STATE.weeklyAgg[activeProduct]?.[ch]?.[lastW];
+    const prev = prevW !== null ? STATE.weeklyAgg[activeProduct]?.[ch]?.[prevW] : null;
+    if (!cur) { grid.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+    const curRates = computeRates(cur);
+    const prevRates = prev ? computeRates(prev) : {};
+    addKpiCard(grid, chLabel + ' 노출수', numFmt(cur.exposure), deltaOf(cur.exposure, prev?.exposure), lastW);
+    addKpiCard(grid, chLabel + ' 전환수', numFmt(cur.conversion), deltaOf(cur.conversion, prev?.conversion), lastW);
+    addKpiCard(grid, chLabel + ' 전환율', pct(curRates.convRate), deltaOf(curRates.convRate, prevRates.convRate, true), lastW);
+    if (ch === 'own') {
+      addKpiCard(grid, '자사몰 판매율', pct(curRates.sellRate), deltaOf(curRates.sellRate, prevRates.sellRate, true), lastW);
+    }
+  }
+}
+
+function deltaOf(cur, prev, isRate, label) {
+  label = label || '전주';
+  if (cur === null || cur === undefined || prev === null || prev === undefined || prev === 0) {
+    return { cls: 'flat', text: `${label} 대비 비교 불가` };
+  }
+  const diff = cur - prev;
+  const pctChange = (diff / Math.abs(prev)) * 100;
+  const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
+  const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '-';
+  return { cls, text: `${arrow} ${label} 대비 ${Math.abs(pctChange).toFixed(1)}%` };
+}
+
+function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+function getThemeColors() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  return {
+    text: isLight ? '#1c1e21' : '#e5e7eb',
+    sub: isLight ? '#6b7280' : '#9aa3b2',
+    grid: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+  };
+}
+
+function chartOptions(colors, isPercent) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { color: colors.text } } },
+    scales: {
+      x: { ticks: { color: colors.sub, maxRotation: 60, minRotation: 0, autoSkip: true, maxTicksLimit: 16 }, grid: { color: colors.grid } },
+      y: { ticks: { color: colors.sub, callback: v => isPercent ? v + '%' : v }, grid: { color: colors.grid } }
+    }
+  };
+}
+
+function renderCharts() {
+  const weeks = STATE.weeks;
+  const labels = weeks.map(w => weekMeta(w).short);
+  const colors = getThemeColors();
+
+  destroyChart('exposure');
+  let expDatasets = [];
+  if (activeChannel === 'combined') {
+    expDatasets = [{ label: '통합 노출수 (자사몰+네이버)', data: weeks.map(w => { const b = combinedBucket(activeProduct, w); return b ? b.exposure : null; }), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25 }];
+  } else if (activeChannel === 'own') {
+    expDatasets = [{ label: '자사몰 노출수', data: weeks.map(w => STATE.weeklyAgg[activeProduct]?.own?.[w]?.exposure ?? null), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25 }];
+  } else {
+    expDatasets = [{ label: '네이버 노출수', data: weeks.map(w => STATE.weeklyAgg[activeProduct]?.naver?.[w]?.exposure ?? null), borderColor: '#fb923c', backgroundColor: '#fb923c', tension: 0.25 }];
+  }
+  document.getElementById('exposureTitle').textContent =
+    (activeChannel === 'combined' ? '주간 노출수 추이 (통합)' : activeChannel === 'own' ? '주간 노출수 추이 (자사몰)' : '주간 노출수 추이 (네이버)');
+  charts.exposure = new Chart(document.getElementById('chartExposure'), {
+    type: 'line', data: { labels, datasets: expDatasets }, options: chartOptions(colors, false)
+  });
+
+  destroyChart('conv');
+  let convDatasets = [];
+  if (activeChannel === 'combined') {
+    convDatasets = [{ label: '통합 전환율', data: weeks.map(w => { const b = combinedBucket(activeProduct, w); return (b && b.exposure > 0) ? (b.conversion / b.exposure * 100) : null; }), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25 }];
+  } else if (activeChannel === 'own') {
+    convDatasets = [{ label: '자사몰 전환율', data: weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.own?.[w]; return b ? computeRates(b).convRate * 100 : null; }), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25 }];
+  } else {
+    convDatasets = [{ label: '네이버 전환율', data: weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.naver?.[w]; return b ? computeRates(b).convRate * 100 : null; }), borderColor: '#fb923c', backgroundColor: '#fb923c', tension: 0.25 }];
+  }
+  document.getElementById('convTitle').textContent =
+    (activeChannel === 'combined' ? '주간 전환율 추이 (통합, 전환수÷노출수)' : activeChannel === 'own' ? '주간 전환율 추이 (자사몰)' : '주간 전환율 추이 (네이버)');
+  charts.conv = new Chart(document.getElementById('chartConvRate'), {
+    type: 'line', data: { labels, datasets: convDatasets }, options: chartOptions(colors, true)
+  });
+
+  destroyChart('ownRates');
+  charts.ownRates = new Chart(document.getElementById('chartOwnRates'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '담김율', data: weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.own?.[w]; return b ? computeRates(b).addRate * 100 : null; }), borderColor: '#a78bfa', backgroundColor: '#a78bfa', tension: 0.25 },
+        { label: '판매율', data: weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.own?.[w]; return b ? computeRates(b).sellRate * 100 : null; }), borderColor: '#22c55e', backgroundColor: '#22c55e', tension: 0.25 }
+      ]
+    },
+    options: chartOptions(colors, true)
+  });
+}
+
+function renderTable() {
+  const table = document.getElementById('weeklyTable');
+  const weeks = STATE.weeks;
+  let head = `<thead><tr><th>주차</th>
+    <th>자사몰 노출</th><th>자사몰 담김</th><th>자사몰 전환</th><th>담김율</th><th>전환율</th><th>판매율</th>
+    <th>네이버 노출</th><th>네이버 전환</th><th>네이버 전환율</th>
+    <th>통합 노출</th><th>통합 전환</th><th>통합 전환율</th></tr></thead>`;
+  let body = '<tbody>';
+  weeks.forEach(w => {
+    const o = STATE.weeklyAgg[activeProduct]?.own?.[w];
+    const n = STATE.weeklyAgg[activeProduct]?.naver?.[w];
+    const or = computeRates(o), nr = computeRates(n);
+    const c = combinedBucket(activeProduct, w);
+    const cRate = (c && c.exposure > 0) ? c.conversion / c.exposure : null;
+    body += `<tr>
+      <td>${weekMeta(w).label}</td>
+      <td>${o ? numFmt(o.exposure) : '-'}</td>
+      <td>${o ? numFmt(o.add) : '-'}</td>
+      <td>${o ? numFmt(o.conversion) : '-'}</td>
+      <td>${o ? pct(or.addRate) : '-'}</td>
+      <td>${o ? pct(or.convRate) : '-'}</td>
+      <td>${o ? pct(or.sellRate) : '-'}</td>
+      <td>${n ? numFmt(n.exposure) : '-'}</td>
+      <td>${n ? numFmt(n.conversion) : '-'}</td>
+      <td>${n ? pct(nr.convRate) : '-'}</td>
+      <td>${c ? numFmt(c.exposure) : '-'}</td>
+      <td>${c ? numFmt(c.conversion) : '-'}</td>
+      <td>${c ? pct(cRate) : '-'}</td>
+    </tr>`;
+  });
+  body += '</tbody>';
+  table.innerHTML = head + body;
+}
+
+function renderRollingComparison() {
+  const table = document.getElementById('rollingTable');
+  const arrOwn = STATE.daily[activeProduct]?.own || [];
+  const arrNaver = STATE.daily[activeProduct]?.naver || [];
+  const allDates = [...arrOwn, ...arrNaver].map(r => r.date);
+  if (allDates.length === 0) { table.innerHTML = ''; return; }
+  const maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
+
+  function windowSum(days, offset) {
+    const curEnd = new Date(maxDate); curEnd.setDate(curEnd.getDate() - offset * days);
+    const curStart = new Date(curEnd); curStart.setDate(curStart.getDate() - (days - 1));
+    return { start: curStart, end: curEnd, bucket: sumDailyRange(activeProduct, activeChannel, curStart, curEnd) };
+  }
+
+  const showSellRate = activeChannel === 'own';
+  let head = `<thead><tr><th>기간</th><th>노출수</th><th>전환수</th><th>전환율</th>${showSellRate ? '<th>판매율</th>' : ''}<th>노출수 증감 (직전 동일기간 대비)</th></tr></thead>`;
+  let body = '<tbody>';
+  [7, 14, 30].forEach(days => {
+    const cur = windowSum(days, 0);
+    const prev = windowSum(days, 1);
+    const curR = rangeRates(cur.bucket);
+    // 직전 기간이 이 창(window)만큼 완전히 채워져 있을 때만 증감률을 계산 (부분 데이터로 인한 왜곡 방지)
+    const d = deltaOf(cur.bucket.exposure, prev.bucket.days === days ? prev.bucket.exposure : null, false, '직전 기간');
+    body += `<tr>
+      <td>최근 ${days}일 (${fmtMD(cur.start)}~${fmtMD(cur.end)})</td>
+      <td>${numFmt(cur.bucket.exposure)}</td>
+      <td>${numFmt(cur.bucket.conversion)}</td>
+      <td>${pct(curR.convRate)}</td>
+      ${showSellRate ? `<td>${pct(curR.sellRate)}</td>` : ''}
+      <td class="delta ${d.cls}">${d.text}</td>
+    </tr>`;
+  });
+  body += '</tbody>';
+  table.innerHTML = head + body;
+}
+
+function renderMonthlyComparison() {
+  const box = document.getElementById('monthlyCompareBox');
+  const months = STATE.months;
+  if (months.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+  const curM = months[months.length - 1];
+  const prevM = months.length > 1 ? months[months.length - 2] : null;
+
+  function getBucket(mk) {
+    if (mk === null || mk === undefined) return null;
+    if (activeChannel === 'combined') return combinedMonthBucket(activeProduct, mk);
+    return STATE.monthlyAgg[activeProduct]?.[activeChannel]?.[mk] || null;
+  }
+  const cur = getBucket(curM);
+  const prev = getBucket(prevM);
+  if (!cur) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+
+  const curLabel = monthLabel(curM) + ` (${cur.days}일)`;
+  const prevLabel = prev ? monthLabel(prevM) + ` (${prev.days}일)` : '-';
+  const curRates = rangeRates(cur);
+  const prevRates = prev ? rangeRates(prev) : {};
+  const curAvgExp = cur.days > 0 ? cur.exposure / cur.days : 0;
+  const prevAvgExp = (prev && prev.days > 0) ? prev.exposure / prev.days : null;
+  const curAvgConv = cur.days > 0 ? cur.conversion / cur.days : 0;
+  const prevAvgConv = (prev && prev.days > 0) ? prev.conversion / prev.days : null;
+
+  const dExp = deltaOf(cur.exposure, prev?.exposure, false, '전월');
+  const dConv = deltaOf(cur.conversion, prev?.conversion, false, '전월');
+  const dRate = deltaOf(curRates.convRate, prevRates.convRate, true, '전월');
+  const dSell = deltaOf(curRates.sellRate, prevRates.sellRate, true, '전월');
+  const dAvgExp = deltaOf(curAvgExp, prevAvgExp, false, '전월');
+  const dAvgConv = deltaOf(curAvgConv, prevAvgConv, false, '전월');
+
+  let html = `<table>
+    <thead><tr><th>지표</th><th>${curLabel}</th><th>${prevLabel}</th><th>증감</th></tr></thead>
+    <tbody>
+      <tr><td>노출수 (총합)</td><td>${numFmt(cur.exposure)}</td><td>${prev ? numFmt(prev.exposure) : '-'}</td><td class="delta ${dExp.cls}">${dExp.text}</td></tr>
+      <tr><td>전환수 (총합)</td><td>${numFmt(cur.conversion)}</td><td>${prev ? numFmt(prev.conversion) : '-'}</td><td class="delta ${dConv.cls}">${dConv.text}</td></tr>
+      <tr><td>전환율</td><td>${pct(curRates.convRate)}</td><td>${prev ? pct(prevRates.convRate) : '-'}</td><td class="delta ${dRate.cls}">${dRate.text}</td></tr>
+      ${activeChannel === 'own' ? `<tr><td>판매율</td><td>${pct(curRates.sellRate)}</td><td>${prev ? pct(prevRates.sellRate) : '-'}</td><td class="delta ${dSell.cls}">${dSell.text}</td></tr>` : ''}
+      <tr><td>일평균 노출수</td><td>${numFmt(curAvgExp)}</td><td>${prevAvgExp !== null ? numFmt(prevAvgExp) : '-'}</td><td class="delta ${dAvgExp.cls}">${dAvgExp.text}</td></tr>
+      <tr><td>일평균 전환수</td><td>${numFmt(curAvgConv)}</td><td>${prevAvgConv !== null ? numFmt(prevAvgConv) : '-'}</td><td class="delta ${dAvgConv.cls}">${dAvgConv.text}</td></tr>
+    </tbody>
+  </table>
+  ${!prev ? '<p style="font-size:12px;color:var(--sub);margin-top:8px;">비교할 지난달 데이터가 없습니다.</p>' : ''}
+  ${cur.days < 25 ? '<p style="font-size:12px;color:var(--sub);margin-top:8px;">※ 이번달은 아직 진행 중이라 총합보다 일평균 비교가 더 정확할 수 있습니다.</p>' : ''}`;
+  box.innerHTML = html;
+}
+
+function renderPeakComparison() {
+  const box = document.getElementById('peakCompareBox');
+  const weeks = STATE.weeks;
+  const months = STATE.months;
+  if (weeks.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+
+  function weekBucket(wi) {
+    return activeChannel === 'combined' ? combinedBucket(activeProduct, wi) : STATE.weeklyAgg[activeProduct]?.[activeChannel]?.[wi];
+  }
+  function monthBucket(mk) {
+    return activeChannel === 'combined' ? combinedMonthBucket(activeProduct, mk) : STATE.monthlyAgg[activeProduct]?.[activeChannel]?.[mk];
+  }
+
+  let peakWeek = weeks[0], peakWeekVal = -1;
+  weeks.forEach(w => {
+    const b = weekBucket(w);
+    if (b && b.exposure > peakWeekVal) { peakWeekVal = b.exposure; peakWeek = w; }
+  });
+  const curWeek = weeks[weeks.length - 1];
+  const curWeekVal = weekBucket(curWeek)?.exposure || 0;
+  const weekRatio = peakWeekVal > 0 ? (curWeekVal / peakWeekVal * 100) : null;
+
+  let html = '';
+  if (peakWeekVal >= 0) {
+    const isPeakNow = peakWeek === curWeek;
+    html += `<p>노출수 기준 지금까지 가장 높았던 주는 <b>${weekMeta(peakWeek).label}</b>(${numFmt(peakWeekVal)}회)입니다. 현재 주(${weekMeta(curWeek).label})는 ${numFmt(curWeekVal)}회로, 피크 대비 <b>${weekRatio !== null ? weekRatio.toFixed(1) : '-'}%</b> 수준입니다.${isPeakNow ? ' 현재가 지금까지 최고 기록입니다.' : ''}</p>`;
+  }
+
+  if (months.length > 0) {
+    let peakMonth = months[0], peakMonthAvg = -1;
+    months.forEach(m => {
+      const b = monthBucket(m);
+      if (b && b.days > 0) {
+        const avg = b.exposure / b.days;
+        if (avg > peakMonthAvg) { peakMonthAvg = avg; peakMonth = m; }
+      }
+    });
+    const curMonth = months[months.length - 1];
+    const curB = monthBucket(curMonth);
+    const curMonthAvg = (curB && curB.days > 0) ? curB.exposure / curB.days : 0;
+    const monthRatio = peakMonthAvg > 0 ? (curMonthAvg / peakMonthAvg * 100) : null;
+    const isPeakMonthNow = peakMonth === curMonth;
+    html += `<p>일평균 노출수 기준 가장 높았던 달은 <b>${monthLabel(peakMonth)}</b>(일평균 ${numFmt(peakMonthAvg)}회)입니다. 이번달(${monthLabel(curMonth)})은 일평균 ${numFmt(curMonthAvg)}회로, 최고 달 대비 <b>${monthRatio !== null ? monthRatio.toFixed(1) : '-'}%</b> 수준입니다.${isPeakMonthNow ? ' 이번달이 지금까지 최고 기록입니다.' : ''}</p>`;
+  }
+
+  box.innerHTML = html || '<div class="empty">데이터가 부족합니다</div>';
+}
+
+function weightedAvg(buckets, numKey, denKey) {
+  const num = buckets.reduce((s, b) => s + (b[numKey] || 0), 0);
+  const den = buckets.reduce((s, b) => s + (b[denKey] || 0), 0);
+  return den > 0 ? num / den : null;
+}
+
+function renderInsights() {
+  const box = document.getElementById('insightBox');
+  const weeks = STATE.weeks;
+  if (weeks.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+
+  const weeksWithOwn = weeks.filter(w => STATE.weeklyAgg[activeProduct]?.own?.[w]);
+  const weeksWithNaver = weeks.filter(w => STATE.weeklyAgg[activeProduct]?.naver?.[w]);
+  const ownBuckets = weeksWithOwn.map(w => STATE.weeklyAgg[activeProduct].own[w]);
+  const naverBuckets = weeksWithNaver.map(w => STATE.weeklyAgg[activeProduct].naver[w]);
+
+  let html = '';
+
+  if (ownBuckets.length > 0) {
+    const rates = ownBuckets.map(computeRates);
+    const bestIdx = rates.reduce((bi, r, i) => (r.convRate ?? -1) > (rates[bi].convRate ?? -1) ? i : bi, 0);
+    const worstIdx = rates.reduce((wi_, r, i) => (r.convRate ?? 2) < (rates[wi_].convRate ?? 2) ? i : wi_, 0);
+    const bestW = weeksWithOwn[bestIdx];
+    const worstW = weeksWithOwn[worstIdx];
+    html += `<p><b>자사몰</b>은 총 ${ownBuckets.reduce((s, b) => s + b.exposure, 0).toLocaleString('ko-KR')}회 노출에 전환율 ${pct(weightedAvg(ownBuckets, 'conversion', 'exposure'))}, 판매율(담김 대비 전환) ${pct(weightedAvg(ownBuckets, 'conversion', 'add'))}을 기록했습니다. 전환율이 가장 높았던 주는 <b>${weekMeta(bestW).label}</b>(${pct(rates[bestIdx].convRate)}), 가장 낮았던 주는 <b>${weekMeta(worstW).label}</b>(${pct(rates[worstIdx].convRate)})입니다.</p>`;
+  }
+  if (naverBuckets.length > 0) {
+    html += `<p><b>네이버</b>는 총 ${naverBuckets.reduce((s, b) => s + b.exposure, 0).toLocaleString('ko-KR')}회 노출에 전환율 ${pct(weightedAvg(naverBuckets, 'conversion', 'exposure'))}을 기록했습니다.</p>`;
+  }
+  if (ownBuckets.length > 0 && naverBuckets.length > 0) {
+    const ownConv = weightedAvg(ownBuckets, 'conversion', 'exposure');
+    const naverConv = weightedAvg(naverBuckets, 'conversion', 'exposure');
+    const better = ownConv > naverConv ? '자사몰' : '네이버';
+    html += `<p>두 채널을 비교하면 <b>${better}</b>의 전환율이 상대적으로 높습니다 (자사몰 ${pct(ownConv)} vs 네이버 ${pct(naverConv)}). 예산/트래픽 배분 시 참고하세요.</p>`;
+
+    const combinedExposure = ownBuckets.reduce((s, b) => s + b.exposure, 0) + naverBuckets.reduce((s, b) => s + b.exposure, 0);
+    const combinedConversion = ownBuckets.reduce((s, b) => s + b.conversion, 0) + naverBuckets.reduce((s, b) => s + b.conversion, 0);
+    const combinedRate = combinedExposure > 0 ? combinedConversion / combinedExposure : null;
+    html += `<p><b>통합(자사몰+네이버)</b> 기준으로는 총 노출수 ${combinedExposure.toLocaleString('ko-KR')}회, 전환수 ${combinedConversion.toLocaleString('ko-KR')}건, 전환율 ${pct(combinedRate)}입니다.</p>`;
+  }
+  if (weeks.length >= 2) {
+    const lastW = weeks[weeks.length - 1], prevW = weeks[weeks.length - 2];
+    const cur = combinedBucket(activeProduct, lastW);
+    const prev = combinedBucket(activeProduct, prevW);
+    if (cur && prev) {
+      const d = deltaOf(cur.exposure, prev.exposure);
+      html += `<p>최신 주차(${weekMeta(lastW).label}) 통합 노출수는 전주 대비 ${d.text.replace('전주 대비 ', '')} 변화했습니다.</p>`;
+    }
+  }
+  box.innerHTML = html || '<div class="empty">인사이트를 계산할 데이터가 부족합니다</div>';
+}
+
+function renderBanner() {
+  const banner = document.getElementById('statusBanner');
+  if (STATE.usingDemo) {
+    banner.className = 'banner demo';
+    banner.textContent = '⚠ 데모 데이터를 표시 중입니다. 하단의 "실제 구글 스프레드시트와 연동하는 방법"을 참고해 CONFIG.SHEET_ID를 설정하세요.';
+  } else {
+    banner.className = 'banner live';
+    banner.textContent = '✓ 구글 스프레드시트에서 실시간 데이터를 불러왔습니다. (' + new Date().toLocaleString('ko-KR') + ' 기준)';
+  }
+}
+
+function renderAll() {
+  if (!activeProduct) return;
+  renderTabs();
+  renderKPIs();
+  renderCharts();
+  renderRollingComparison();
+  renderMonthlyComparison();
+  renderPeakComparison();
+  renderTable();
+  renderInsights();
+}
+
+document.getElementById('channelToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#channelToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activeChannel = btn.dataset.ch;
+  renderAll();
+});
+
+/* ========================= 테마 (다크/라이트) ========================= */
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('dashboardTheme', theme); } catch (e) {}
+  const btn = document.getElementById('themeToggle');
+  btn.textContent = theme === 'dark' ? '☀ 라이트 모드' : '🌙 다크 모드';
+  if (STATE.products.length > 0) renderAll();
+}
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+});
+
+(async function init() {
+  let savedTheme = 'dark';
+  try { savedTheme = localStorage.getItem('dashboardTheme') || 'dark'; } catch (e) {}
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  document.getElementById('themeToggle').textContent = savedTheme === 'dark' ? '☀ 라이트 모드' : '🌙 다크 모드';
+
+  await loadData();
+  renderBanner();
+  if (STATE.products.length > 0) {
+    activeProduct = STATE.products[0];
+    renderAll();
+  } else {
+    document.getElementById('kpiGrid').innerHTML = '<div class="empty">파싱된 제품 데이터가 없습니다. CONFIG와 시트 구조를 확인하세요.</div>';
+  }
+})();
+</script>
+</body>
+</html>
