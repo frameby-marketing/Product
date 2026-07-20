@@ -96,6 +96,11 @@
 <div class="wrap">
   <div id="statusBanner" class="banner demo">데모 데이터를 표시 중입니다.</div>
 
+  <details id="debugDetails" style="margin-bottom:18px;">
+    <summary>진단 정보 (데이터가 안 보일 때 확인)</summary>
+    <div class="content" id="debugBox"></div>
+  </details>
+
   <div id="tabs" class="tabs"></div>
   <div class="channel-toggle" id="channelToggle">
     <button data-ch="combined" class="active">통합 (자사몰+네이버)</button>
@@ -290,6 +295,9 @@ function parseKDate(s, year) {
   return d;
 }
 
+// 공백 제거 후 비교 (전각/후행 공백 등으로 인한 매칭 실패 방지)
+function normLabel(s) { return (s || '').replace(/\s+/g, '').trim(); }
+
 // 헤더 2행(제품명 행, 지표명 행)에서 제품 블록 위치를 감지 (오른쪽으로 나열된 제품 블록 대응)
 function detectBlocks(nameRow, headerRow) {
   const blocks = [];
@@ -298,13 +306,22 @@ function detectBlocks(nameRow, headerRow) {
     const nm = (nameRow[i] || '').trim();
     if (nm !== '') currentName = nm;
     const label = (headerRow[i] || '').trim();
-    if (label === '노출수') {
+    if (normLabel(label) === '노출수') {
       blocks.push({ name: currentName || ('제품' + (blocks.length + 1)), start: i, metrics: [label] });
     } else if (blocks.length > 0 && label !== '') {
       blocks[blocks.length - 1].metrics.push(label);
     }
   }
   return blocks;
+}
+
+// 시트 CSV의 구조를 미리 훑어 진단 정보를 만든다 (제품 블록이 0개로 감지될 때 원인 파악용)
+function analyzeCSV(csvText) {
+  const rows = parseCSV(csvText);
+  if (rows.length < 2) return { rowCount: rows.length, headerRow: [], blocks: [], preview: rows.slice(0, 6) };
+  const nameRow = rows[0], headerRow = rows[1];
+  const blocks = detectBlocks(nameRow, headerRow);
+  return { rowCount: rows.length, headerRow, blocks, preview: rows.slice(0, 6) };
 }
 
 // CSV 전체를 파싱해 { productName: [{date, exposure, add, conversion}, ...] } 형태로 반환
@@ -316,16 +333,18 @@ function parseChannelCSV(csvText, year) {
   const blocks = detectBlocks(nameRow, headerRow);
   const result = {};
   blocks.forEach(b => { result[b.name] = []; });
+  const normMetrics = blocks.map(b => b.metrics.map(normLabel));
 
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
     const dateCell = row[0];
     const date = parseKDate(dateCell, year);
     if (!date) continue; // ave/total/빈 행 등은 건너뜀
-    blocks.forEach(b => {
-      const idxExposure = b.start + b.metrics.indexOf('노출수');
-      const idxAdd = b.metrics.indexOf('담김수') >= 0 ? b.start + b.metrics.indexOf('담김수') : -1;
-      const idxConv = b.metrics.indexOf('전환수') >= 0 ? b.start + b.metrics.indexOf('전환수') : -1;
+    blocks.forEach((b, bi) => {
+      const nm = normMetrics[bi];
+      const idxExposure = b.start + nm.indexOf('노출수');
+      const idxAdd = nm.indexOf('담김수') >= 0 ? b.start + nm.indexOf('담김수') : -1;
+      const idxConv = nm.indexOf('전환수') >= 0 ? b.start + nm.indexOf('전환수') : -1;
       const exposure = toNum(row[idxExposure]);
       if (exposure === null) return;
       const add = idxAdd >= 0 ? toNum(row[idxAdd]) : null;
@@ -387,6 +406,7 @@ async function loadData() {
 
   const own = parseChannelCSV(ownCSV, CONFIG.YEAR);
   const naver = parseChannelCSV(naverCSV, CONFIG.YEAR);
+  const debug = { own: analyzeCSV(ownCSV), naver: analyzeCSV(naverCSV), usingDemo };
 
   const products = Array.from(new Set([...Object.keys(own), ...Object.keys(naver)]));
 
@@ -461,7 +481,7 @@ async function loadData() {
     };
   });
 
-  STATE = { channels: { own, naver }, products, weeks, weeklyAgg, months, monthlyAgg, daily, usingDemo };
+  STATE = { channels: { own, naver }, products, weeks, weeklyAgg, months, monthlyAgg, daily, usingDemo, debug };
   return STATE;
 }
 
@@ -904,6 +924,34 @@ function renderInsights() {
   box.innerHTML = html || '<div class="empty">인사이트를 계산할 데이터가 부족합니다</div>';
 }
 
+function renderDebug() {
+  const box = document.getElementById('debugBox');
+  const details = document.getElementById('debugDetails');
+  if (!STATE.debug) { box.innerHTML = ''; return; }
+
+  function fmtDiag(diag, label) {
+    let html = `<p><b>${label}</b>: CSV ${diag.rowCount}행 수신, 제품 블록 <b>${diag.blocks.length}개</b> 감지`;
+    if (diag.blocks.length > 0) {
+      html += ' — ' + diag.blocks.map(b => `${b.name}(${b.metrics.join('/')})`).join(', ');
+    }
+    html += '</p>';
+    html += `<p style="font-size:12px;">2번째 행(지표명) 원본: ${diag.headerRow.length ? diag.headerRow.map(h => '"' + h + '"').join(', ') : '(비어있음)'}</p>`;
+    if (diag.blocks.length === 0 && diag.rowCount > 0) {
+      html += `<p style="font-size:12px;color:var(--bad);">→ "노출수"라는 이름의 열을 2번째 행에서 찾지 못했습니다. 시트 1행이 제품명, 2행이 노출수/전환수 등 열 이름인지 확인해주세요. (제목 행이 하나 더 있으면 1행이 밀립니다)</p>`;
+    }
+    html += '<pre style="white-space:pre-wrap;font-size:11px;background:var(--code-bg);padding:8px;border-radius:6px;overflow-x:auto;">' +
+      diag.preview.map((r, i) => (i + 1) + ': ' + r.join(' | ')).join('\n') + '</pre>';
+    return html;
+  }
+
+  box.innerHTML =
+    `<p style="font-size:12px;color:var(--sub);">모드: ${STATE.usingDemo ? '데모 데이터' : '구글 시트 실시간 연동'}</p>` +
+    fmtDiag(STATE.debug.own, CONFIG.OWN_SHEET_NAME + ' (자사몰)') +
+    fmtDiag(STATE.debug.naver, CONFIG.NAVER_SHEET_NAME + ' (네이버)');
+
+  if (STATE.products.length === 0) details.setAttribute('open', '');
+}
+
 function renderBanner() {
   const banner = document.getElementById('statusBanner');
   if (STATE.usingDemo) {
@@ -957,11 +1005,12 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 
   await loadData();
   renderBanner();
+  renderDebug();
   if (STATE.products.length > 0) {
     activeProduct = STATE.products[0];
     renderAll();
   } else {
-    document.getElementById('kpiGrid').innerHTML = '<div class="empty">파싱된 제품 데이터가 없습니다. CONFIG와 시트 구조를 확인하세요.</div>';
+    document.getElementById('kpiGrid').innerHTML = '<div class="empty">파싱된 제품 데이터가 없습니다. 위의 "진단 정보"를 펼쳐서 원인을 확인하세요.</div>';
   }
 })();
 </script>
