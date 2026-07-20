@@ -320,18 +320,31 @@ function findNameRowIndex(rows, headerIdx) {
 }
 
 // 제품명 행 + 헤더 행에서 제품 블록 위치를 감지 (오른쪽으로 나열된 제품 블록, 블록 사이 빈 열 대응)
+// 두 가지 실제 구조를 모두 지원한다:
+//  (a) 제품명이 별도 행에 있고 헤더 행은 그냥 "일자" (데모 데이터 구조)
+//  (b) 제품명이 "일자" 열 헤더 자체에 붙어 있음, 예: "킥프레임 일자", "PH 스탠드 일자" (실제 시트 구조, 헤더가 한 줄뿐)
+const HEADER_KEYWORDS = ['일자', '노출수', '담김수', '전환수', '담김율', '전환율', '판매율'];
 function detectBlocks(nameRow, headerRow) {
   const blocks = [];
-  // 첫 번째 제품명은 A열(0번 인덱스)에 있을 수 있다 (A열이 날짜 열이면서 동시에 제품명 행에서는 제품명 셀이기도 함)
-  let currentName = (nameRow[0] || '').trim();
-  for (let i = 1; i < headerRow.length; i++) {
-    const nm = (nameRow[i] || '').trim();
-    if (nm !== '') currentName = nm;
+  for (let i = 0; i < headerRow.length; i++) {
     const label = (headerRow[i] || '').trim();
-    if (normLabel(label) === '노출수') {
-      blocks.push({ name: currentName || ('제품' + (blocks.length + 1)), start: i, metrics: [label] });
-    } else if (blocks.length > 0 && label !== '' && normLabel(label) !== '일자') {
-      // 각 제품 블록이 자체 "일자" 열을 갖고 있어도(예: I열=일자, J열=노출수...) 이전 블록의 지표 목록을 오염시키지 않도록 제외
+    if (label === '') continue; // 블록 사이 빈 열은 건너뜀
+    if (/일자$/.test(label)) {
+      // "~일자"로 끝나는 셀 = 이 블록의 시작 열(날짜 열). 제품명을 아래 우선순위로 찾는다:
+      // 1) 헤더 셀 안에 같이 적힌 이름 (예: "킥프레임 일자" → "킥프레임", 실제 시트 구조)
+      // 2) 같은 열의 이름 행 (날짜 열 바로 위에 제품명이 있는 경우)
+      // 3) 바로 오른쪽 열(노출수 열)의 이름 행 (제품명이 노출수 열 위에 있는 구조)
+      let name = label.replace(/일자$/, '').trim();
+      if (!name) {
+        const n1 = (nameRow[i] || '').trim();
+        if (n1 && !HEADER_KEYWORDS.includes(normLabel(n1))) name = n1;
+      }
+      if (!name) {
+        const n2 = (nameRow[i + 1] || '').trim();
+        if (n2 && !HEADER_KEYWORDS.includes(normLabel(n2))) name = n2;
+      }
+      blocks.push({ name: name || ('제품' + (blocks.length + 1)), start: i, metrics: ['일자'] });
+    } else if (blocks.length > 0 && normLabel(label) !== '일자') {
       blocks[blocks.length - 1].metrics.push(label);
     }
   }
