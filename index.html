@@ -76,8 +76,19 @@
   tbody tr.peak-row{background:rgba(59,130,246,0.14); font-weight:700;}
   tbody tr.peak-row td:first-child{color:var(--accent);}
   tbody tr.peak-row:hover{background:rgba(59,130,246,0.22);}
+  td.peak-exp{background:rgba(59,130,246,0.24); font-weight:700; color:var(--accent);}
+  td.peak-conv{background:rgba(167,139,250,0.24); font-weight:700; color:#a78bfa;}
+  td.peak-rate{background:rgba(34,197,94,0.24); font-weight:700; color:var(--good);}
   .insight p{font-size:16px; line-height:1.8; margin:0 0 10px; color:var(--text);}
   .insight b{color:var(--accent);}
+  .insight-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px;}
+  .insight-block{background:var(--table-head-bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px;}
+  .insight-block h3{margin:0 0 10px; font-size:15px; color:var(--text);}
+  .insight-row{display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:14px; padding:6px 0; border-bottom:1px dashed var(--border); color:var(--sub);}
+  .insight-row:last-child{border-bottom:none;}
+  .insight-row .val{color:var(--text); font-weight:700; text-align:right;}
+  .insight-row .delta{font-size:11.5px; font-weight:600; margin-left:6px;}
+  .insight-highlight{background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.35);}
   details{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:26px;}
   details summary{cursor:pointer; font-weight:600; font-size:13.5px; color:var(--text);}
   details .content{margin-top:12px; font-size:13px; line-height:1.8; color:var(--sub);}
@@ -556,6 +567,71 @@ function computeRates(bucket) {
   return { convRate, addRate, sellRate };
 }
 
+// ===== 통합(combined) 계산 헬퍼 =====
+// 원칙: 통합 값은 항상 "자사몰 자체 평균을 독립적으로 계산" + "네이버 자체 평균을 독립적으로 계산" 한 뒤 더한다.
+// (예전 방식은 두 채널의 일수 중 큰 쪽으로 나누거나, 한쪽 채널 버킷이 아예 없으면 그 채널 기여분이
+//  통째로 사라지는 버그가 있었음 — 예: 자사몰 13 + 네이버 12 인데 13만 표시되는 문제)
+
+function weekChannelAvg(channel, wi, key) {
+  const b = STATE.weeklyAgg[activeProduct]?.[channel]?.[wi];
+  return (b && b.days > 0) ? (b[key] || 0) / b.days : null;
+}
+function weekCombinedAvg(wi, key) {
+  const oa = weekChannelAvg('own', wi, key);
+  const na = weekChannelAvg('naver', wi, key);
+  if (oa === null && na === null) return null;
+  return (oa || 0) + (na || 0);
+}
+function weekAvg(channel, wi, key) {
+  return channel === 'combined' ? weekCombinedAvg(wi, key) : weekChannelAvg(channel, wi, key);
+}
+function weekConvRate(channel, wi) {
+  const exp = weekAvg(channel, wi, 'exposure');
+  const conv = weekAvg(channel, wi, 'conversion');
+  return (exp && exp > 0) ? conv / exp : null;
+}
+function weekAddRate(channel, wi) {
+  const exp = weekAvg(channel, wi, 'exposure');
+  const add = weekAvg(channel, wi, 'add');
+  return (exp && exp > 0) ? add / exp : null;
+}
+function weekSellRate(channel, wi) {
+  const add = weekAvg(channel, wi, 'add');
+  const conv = weekAvg(channel, wi, 'conversion');
+  return (add && add > 0) ? conv / add : null;
+}
+
+function monthChannelAvg(channel, mk, key) {
+  const b = STATE.monthlyAgg[activeProduct]?.[channel]?.[mk];
+  return (b && b.days > 0) ? (b[key] || 0) / b.days : null;
+}
+function monthCombinedAvg(mk, key) {
+  const oa = monthChannelAvg('own', mk, key);
+  const na = monthChannelAvg('naver', mk, key);
+  if (oa === null && na === null) return null;
+  return (oa || 0) + (na || 0);
+}
+function monthAvg(channel, mk, key) {
+  return channel === 'combined' ? monthCombinedAvg(mk, key) : monthChannelAvg(channel, mk, key);
+}
+function monthConvRate(channel, mk) {
+  const exp = monthAvg(channel, mk, 'exposure');
+  const conv = monthAvg(channel, mk, 'conversion');
+  return (exp && exp > 0) ? conv / exp : null;
+}
+function monthAddRate(channel, mk) {
+  const exp = monthAvg(channel, mk, 'exposure');
+  const add = monthAvg(channel, mk, 'add');
+  return (exp && exp > 0) ? add / exp : null;
+}
+function monthSellRate(channel, mk) {
+  const add = monthAvg(channel, mk, 'add');
+  const conv = monthAvg(channel, mk, 'conversion');
+  return (add && add > 0) ? conv / add : null;
+}
+
+// 표시용 통합 버킷(주간/월간 데이터 테이블에서 노출수·전환수 "합계"를 그대로 보여줄 때 사용).
+// 비율(전환율 등) 계산에는 절대 이 bucket을 쓰지 않고 위의 weekConvRate/monthConvRate 등을 사용한다.
 function combinedBucket(product, wi) {
   const o = STATE.weeklyAgg[product]?.own?.[wi];
   const n = STATE.weeklyAgg[product]?.naver?.[wi];
@@ -567,32 +643,13 @@ function combinedBucket(product, wi) {
   };
 }
 
-// 채널별 지표 버킷 하나를 가져오는 공용 헬퍼 (activeChannel에 따라 combined/own/naver 분기)
-function bucketFor(period, key) {
-  if (period === 'week') {
-    return activeChannel === 'combined' ? combinedBucket(activeProduct, key) : STATE.weeklyAgg[activeProduct]?.[activeChannel]?.[key];
-  }
-  return activeChannel === 'combined' ? combinedMonthBucket(activeProduct, key) : STATE.monthlyAgg[activeProduct]?.[activeChannel]?.[key];
-}
-
-// 지정 채널의 특정 기간(주) 동안의 전체 가중평균 비율 (예: Jan~현재 전체 평균 전환율)
-function overallRate(channel, numKey, denKey) {
-  const weeks = STATE.weeks;
-  let num = 0, den = 0;
-  weeks.forEach(w => {
-    const b = channel === 'combined' ? combinedBucket(activeProduct, w) : STATE.weeklyAgg[activeProduct]?.[channel]?.[w];
-    if (b) { num += b[numKey] || 0; den += b[denKey] || 0; }
-  });
-  return den > 0 ? num / den : null;
-}
-
 function combinedMonthBucket(product, mk) {
   const o = STATE.monthlyAgg[product]?.own?.[mk];
   const n = STATE.monthlyAgg[product]?.naver?.[mk];
   if (!o && !n) return null;
   return {
     exposure: (o?.exposure || 0) + (n?.exposure || 0),
-    add: o?.add || 0,
+    add: (o?.add || 0) + (n?.add || 0),
     conversion: (o?.conversion || 0) + (n?.conversion || 0),
     days: Math.max(o?.days || 0, n?.days || 0)
   };
@@ -606,7 +663,23 @@ function monthLabel(mk) {
   return (b.monthStart.getMonth() + 1) + '월';
 }
 
-// 채널별/통합 임의 날짜 구간 합산 (최근 N일 비교용)
+// 지정 채널의 1월~현재 전체 가중평균 비율 (예: 1월~현재 평균 전환율). combined는 두 채널 원자료를 그대로 합산.
+function overallRate(channel, numKey, denKey) {
+  const weeks = STATE.weeks;
+  let num = 0, den = 0;
+  weeks.forEach(w => {
+    if (channel === 'combined') {
+      num += (STATE.weeklyAgg[activeProduct]?.own?.[w]?.[numKey] || 0) + (STATE.weeklyAgg[activeProduct]?.naver?.[w]?.[numKey] || 0);
+      den += (STATE.weeklyAgg[activeProduct]?.own?.[w]?.[denKey] || 0) + (STATE.weeklyAgg[activeProduct]?.naver?.[w]?.[denKey] || 0);
+    } else {
+      const b = STATE.weeklyAgg[activeProduct]?.[channel]?.[w];
+      if (b) { num += b[numKey] || 0; den += b[denKey] || 0; }
+    }
+  });
+  return den > 0 ? num / den : null;
+}
+
+// 채널별/통합 임의 날짜 구간 합산 (최근 N일 비교, YTD 누적 등에 사용)
 function sumDailyRange(product, channel, startDate, endDate) {
   const arrOwn = STATE.daily[product]?.own || [];
   const arrNaver = STATE.daily[product]?.naver || [];
@@ -622,7 +695,57 @@ function sumDailyRange(product, channel, startDate, endDate) {
   if (channel === 'own') return sumArr(arrOwn);
   if (channel === 'naver') return sumArr(arrNaver);
   const o = sumArr(arrOwn), n = sumArr(arrNaver);
-  return { exposure: o.exposure + n.exposure, add: o.add, conversion: o.conversion + n.conversion, days: Math.max(o.days, n.days) };
+  return { exposure: o.exposure + n.exposure, add: o.add + n.add, conversion: o.conversion + n.conversion, days: Math.max(o.days, n.days) };
+}
+
+// 채널별 롤링(최근 N일) 윈도우 — 각 채널 "자기 자신의" 최신 날짜를 기준으로 윈도우를 잡는다.
+// (통합 최신일 하나로 두 채널을 동시에 자르면, 입력이 늦은 채널의 최근 실적이 실제보다 적게 반영되는 문제가 있었음)
+function channelRollingWindow(channel, days, offset) {
+  const arr = STATE.daily[activeProduct]?.[channel] || [];
+  if (arr.length === 0) return null;
+  const maxDate = arr.reduce((mx, r) => r.date > mx ? r.date : mx, arr[0].date);
+  const curEnd = new Date(maxDate); curEnd.setDate(curEnd.getDate() - offset * days);
+  const curStart = new Date(curEnd); curStart.setDate(curStart.getDate() - (days - 1));
+  const bucket = sumDailyRange(activeProduct, channel, curStart, curEnd);
+  return { bucket, start: curStart, end: curEnd };
+}
+// 롤링 일평균: combined는 자사몰 자체 일평균 + 네이버 자체 일평균 (항상 채널별 독립 계산 후 합산)
+function rollingAvg(channel, days, offset, key) {
+  if (channel === 'combined') {
+    const o = channelRollingWindow('own', days, offset);
+    const n = channelRollingWindow('naver', days, offset);
+    const oa = (o && o.bucket.days > 0) ? o.bucket[key] / o.bucket.days : null;
+    const na = (n && n.bucket.days > 0) ? n.bucket[key] / n.bucket.days : null;
+    if (oa === null && na === null) return null;
+    return (oa || 0) + (na || 0);
+  }
+  const w = channelRollingWindow(channel, days, offset);
+  if (!w || w.bucket.days === 0) return null;
+  return w.bucket[key] / w.bucket.days;
+}
+function rollingRate(channel, days, offset, numKey, denKey) {
+  const num = rollingAvg(channel, days, offset, numKey);
+  const den = rollingAvg(channel, days, offset, denKey);
+  return (den && den > 0) ? num / den : null;
+}
+// 해당 윈도우에 실제로 며칠치 데이터가 채워져 있는지 (직전 기간과 비교할 때 "완전히 채워진 경우"만 비교하기 위함)
+function rollingWindowDays(channel, days, offset) {
+  if (channel === 'combined') {
+    const o = channelRollingWindow('own', days, offset);
+    const n = channelRollingWindow('naver', days, offset);
+    return Math.max(o ? o.bucket.days : 0, n ? n.bucket.days : 0);
+  }
+  const w = channelRollingWindow(channel, days, offset);
+  return w ? w.bucket.days : 0;
+}
+
+// 채널의 1월~현재 전체 누적 합계 (YTD 누적 평균, 총 전환 건수 등에 사용)
+function channelTotals(channel) {
+  const arr = STATE.daily[activeProduct]?.[channel] || [];
+  return arr.reduce((acc, r) => {
+    acc.exposure += r.exposure || 0; acc.add += r.add || 0; acc.conversion += r.conversion || 0; acc.days++;
+    return acc;
+  }, { exposure: 0, add: 0, conversion: 0, days: 0 });
 }
 
 function rangeRates(bucket) {
@@ -631,6 +754,21 @@ function rangeRates(bucket) {
   const addRate = bucket.exposure > 0 ? bucket.add / bucket.exposure : null;
   const sellRate = bucket.add > 0 ? bucket.conversion / bucket.add : null;
   return { convRate, addRate, sellRate };
+}
+
+// 건수(개) 차이 기반 델타 표기 — 전환수처럼 "몇 건 늘었다/줄었다"로 보여줄 때 사용 (% 대신 절대 건수)
+function deltaCount(cur, prev, unit, label) {
+  label = label || '전주';
+  unit = unit || '건';
+  if (cur === null || cur === undefined || prev === null || prev === undefined) {
+    return { cls: 'flat', text: `${label} 대비 비교 불가` };
+  }
+  const diff = cur - prev;
+  if (Math.abs(diff) < 0.05) return { cls: 'flat', text: `${label} 대비 변동 없음` };
+  const cls = diff > 0 ? 'up' : 'down';
+  const arrow = diff > 0 ? '▲' : '▼';
+  const dir = diff > 0 ? '증가' : '감소';
+  return { cls, text: `${arrow} ${label} 대비 ${Math.abs(diff).toFixed(1)}${unit} ${dir}` };
 }
 
 function renderTabs() {
@@ -656,51 +794,53 @@ function addKpiCard(grid, label, val, delta, periodText) {
 
 function avgVal(bucket, key) { return (bucket && bucket.days > 0) ? (bucket[key] || 0) / bucket.days : null; }
 
-// 최상단 KPI: 누적 합계 대신 "최신 주차 일평균"을 기준으로 표시 (날짜가 쌓일수록 총합 비교가 불명확해지는 것을 방지)
-// 통합 지표는 어떤 채널 탭을 보고 있어도 항상 표시하고, 탭에 따라 자사몰/네이버 전용 지표를 추가로 보여준다.
+// 최상단 KPI: 달력 주차 대신 "최근 7일 롤링 일평균"을 기준으로 표시 (이번 주가 며칠 안 쌓였어도 왜곡되지 않음)
+// 통합 지표는 항상 자사몰 자체 평균 + 네이버 자체 평균을 독립적으로 계산해 더한 값이라, 한쪽 채널의 이번 기간 데이터가
+// 없거나 늦게 들어와도 다른 채널의 값이 사라지지 않는다.
 function renderKPIs() {
   const grid = document.getElementById('kpiGrid');
   grid.innerHTML = '';
-  const weeks = STATE.weeks;
-  if (weeks.length === 0) { grid.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
-  const lastW = weeks[weeks.length - 1];
-  const prevW = weeks.length > 1 ? weeks[weeks.length - 2] : null;
-  const periodAvg = `${lastW}주차 일평균, 전주 일평균 대비`;
-  const periodRate = `${lastW}주차, 전주 대비`;
+  const periodAvg = '최근 7일 일평균, 직전 7일 대비';
+  const periodRate = '최근 7일, 직전 7일 대비';
 
   // 통합 (항상 표시)
-  const cC = combinedBucket(activeProduct, lastW);
-  const pC = prevW !== null ? combinedBucket(activeProduct, prevW) : null;
-  if (cC) {
-    const expAvg = avgVal(cC, 'exposure'), pExpAvg = avgVal(pC, 'exposure');
-    const convAvg = avgVal(cC, 'conversion'), pConvAvg = avgVal(pC, 'conversion');
-    const rate = cC.exposure > 0 ? cC.conversion / cC.exposure : null;
-    const pRate = (pC && pC.exposure > 0) ? pC.conversion / pC.exposure : null;
-    addKpiCard(grid, '통합 일평균 노출수', numFmt(expAvg), deltaOf(expAvg, pExpAvg, false, '전주 일평균'), periodAvg);
-    addKpiCard(grid, '통합 일평균 전환수', numFmt(convAvg), deltaOf(convAvg, pConvAvg, false, '전주 일평균'), periodAvg);
-    addKpiCard(grid, '통합 전환율', pct(rate), deltaOf(rate, pRate, true, '전주'), periodRate);
+  const expAvg = rollingAvg('combined', 7, 0, 'exposure');
+  const convAvg = rollingAvg('combined', 7, 0, 'conversion');
+  if (expAvg !== null || convAvg !== null) {
+    const pExpAvg = rollingAvg('combined', 7, 1, 'exposure');
+    const pConvAvg = rollingAvg('combined', 7, 1, 'conversion');
+    const rate = rollingRate('combined', 7, 0, 'conversion', 'exposure');
+    const pRate = rollingRate('combined', 7, 1, 'conversion', 'exposure');
+    addKpiCard(grid, '통합 일평균 노출수', numFmt(expAvg), deltaOf(expAvg, pExpAvg, false, '직전 7일'), periodAvg);
+    addKpiCard(grid, '통합 일평균 전환수', numFmt(convAvg), deltaCount(convAvg, pConvAvg, '건', '직전 7일'), periodAvg);
+    addKpiCard(grid, '통합 전환율', pct(rate), deltaOf(rate, pRate, true, '직전 7일'), periodRate);
   }
 
   if (activeChannel === 'own') {
-    const cO = STATE.weeklyAgg[activeProduct]?.own?.[lastW];
-    const pO = prevW !== null ? STATE.weeklyAgg[activeProduct]?.own?.[prevW] : null;
-    if (cO) {
-      const r = computeRates(cO), rp = pO ? computeRates(pO) : {};
-      addKpiCard(grid, '자사몰 일평균 노출수', numFmt(avgVal(cO, 'exposure')), deltaOf(avgVal(cO, 'exposure'), avgVal(pO, 'exposure'), false, '전주 일평균'), periodAvg);
-      addKpiCard(grid, '자사몰 일평균 담김수', numFmt(avgVal(cO, 'add')), deltaOf(avgVal(cO, 'add'), avgVal(pO, 'add'), false, '전주 일평균'), periodAvg);
-      addKpiCard(grid, '자사몰 일평균 전환수', numFmt(avgVal(cO, 'conversion')), deltaOf(avgVal(cO, 'conversion'), avgVal(pO, 'conversion'), false, '전주 일평균'), periodAvg);
-      addKpiCard(grid, '자사몰 담김율', pct(r.addRate), deltaOf(r.addRate, rp.addRate, true, '전주'), periodRate);
-      addKpiCard(grid, '자사몰 전환율', pct(r.convRate), deltaOf(r.convRate, rp.convRate, true, '전주'), periodRate);
-      addKpiCard(grid, '자사몰 판매율', pct(r.sellRate), deltaOf(r.sellRate, rp.sellRate, true, '전주'), periodRate);
+    const oExp = rollingAvg('own', 7, 0, 'exposure');
+    if (oExp !== null) {
+      const pOExp = rollingAvg('own', 7, 1, 'exposure');
+      const oAdd = rollingAvg('own', 7, 0, 'add'), pOAdd = rollingAvg('own', 7, 1, 'add');
+      const oConv = rollingAvg('own', 7, 0, 'conversion'), pOConv = rollingAvg('own', 7, 1, 'conversion');
+      const oAddRate = rollingRate('own', 7, 0, 'add', 'exposure'), pOAddRate = rollingRate('own', 7, 1, 'add', 'exposure');
+      const oConvRate = rollingRate('own', 7, 0, 'conversion', 'exposure'), pOConvRate = rollingRate('own', 7, 1, 'conversion', 'exposure');
+      const oSellRate = rollingRate('own', 7, 0, 'conversion', 'add'), pOSellRate = rollingRate('own', 7, 1, 'conversion', 'add');
+      addKpiCard(grid, '자사몰 일평균 노출수', numFmt(oExp), deltaOf(oExp, pOExp, false, '직전 7일'), periodAvg);
+      addKpiCard(grid, '자사몰 일평균 담김수', numFmt(oAdd), deltaOf(oAdd, pOAdd, false, '직전 7일'), periodAvg);
+      addKpiCard(grid, '자사몰 일평균 전환수', numFmt(oConv), deltaCount(oConv, pOConv, '건', '직전 7일'), periodAvg);
+      addKpiCard(grid, '자사몰 담김율', pct(oAddRate), deltaOf(oAddRate, pOAddRate, true, '직전 7일'), periodRate);
+      addKpiCard(grid, '자사몰 전환율', pct(oConvRate), deltaOf(oConvRate, pOConvRate, true, '직전 7일'), periodRate);
+      addKpiCard(grid, '자사몰 판매율', pct(oSellRate), deltaOf(oSellRate, pOSellRate, true, '직전 7일'), periodRate);
     }
   } else if (activeChannel === 'naver') {
-    const cN = STATE.weeklyAgg[activeProduct]?.naver?.[lastW];
-    const pN = prevW !== null ? STATE.weeklyAgg[activeProduct]?.naver?.[prevW] : null;
-    if (cN) {
-      const r = computeRates(cN), rp = pN ? computeRates(pN) : {};
-      addKpiCard(grid, '네이버 일평균 노출수', numFmt(avgVal(cN, 'exposure')), deltaOf(avgVal(cN, 'exposure'), avgVal(pN, 'exposure'), false, '전주 일평균'), periodAvg);
-      addKpiCard(grid, '네이버 일평균 전환수', numFmt(avgVal(cN, 'conversion')), deltaOf(avgVal(cN, 'conversion'), avgVal(pN, 'conversion'), false, '전주 일평균'), periodAvg);
-      addKpiCard(grid, '네이버 전환율', pct(r.convRate), deltaOf(r.convRate, rp.convRate, true, '전주'), periodRate);
+    const nExp = rollingAvg('naver', 7, 0, 'exposure');
+    if (nExp !== null) {
+      const pNExp = rollingAvg('naver', 7, 1, 'exposure');
+      const nConv = rollingAvg('naver', 7, 0, 'conversion'), pNConv = rollingAvg('naver', 7, 1, 'conversion');
+      const nConvRate = rollingRate('naver', 7, 0, 'conversion', 'exposure'), pNConvRate = rollingRate('naver', 7, 1, 'conversion', 'exposure');
+      addKpiCard(grid, '네이버 일평균 노출수', numFmt(nExp), deltaOf(nExp, pNExp, false, '직전 7일'), periodAvg);
+      addKpiCard(grid, '네이버 일평균 전환수', numFmt(nConv), deltaCount(nConv, pNConv, '건', '직전 7일'), periodAvg);
+      addKpiCard(grid, '네이버 전환율', pct(nConvRate), deltaOf(nConvRate, pNConvRate, true, '직전 7일'), periodRate);
     }
   }
 
@@ -727,6 +867,31 @@ function deltaOf(cur, prev, isRate, label) {
 }
 
 function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+// 막대/선 그래프 위에 값을 그려주는 커스텀 Chart.js 플러그인 (별도 CDN 의존성 추가 없이 구현)
+const dataLabelPlugin = {
+  id: 'dataLabelPlugin',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, i) => {
+      if (!dataset._showLabels) return;
+      const meta = chart.getDatasetMeta(i);
+      if (meta.hidden) return;
+      meta.data.forEach((point, idx) => {
+        const val = dataset.data[idx];
+        if (val === null || val === undefined || !point) return;
+        const text = dataset._labelFormat ? dataset._labelFormat(val) : String(val);
+        ctx.save();
+        ctx.fillStyle = dataset._labelColor || '#94a3b8';
+        ctx.font = dataset._labelFont || '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, point.x, point.y - (dataset._labelOffset || 6));
+        ctx.restore();
+      });
+    });
+  }
+};
+if (typeof Chart !== 'undefined' && Chart.register) { Chart.register(dataLabelPlugin); }
 
 function getThemeColors() {
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
@@ -761,34 +926,35 @@ function renderCharts() {
   const colors = getThemeColors();
 
   destroyChart('exposure');
-  let expDatasets = [];
-  if (activeChannel === 'combined') {
-    expDatasets = [{ label: '통합 노출수 (자사몰+네이버)', data: weeks.map(w => { const b = combinedBucket(activeProduct, w); return b ? b.exposure : null; }), backgroundColor: '#3b82f6', borderRadius: 4, maxBarThickness: 48 }];
-  } else if (activeChannel === 'own') {
-    expDatasets = [{ label: '자사몰 노출수', data: weeks.map(w => STATE.weeklyAgg[activeProduct]?.own?.[w]?.exposure ?? null), backgroundColor: '#3b82f6', borderRadius: 4, maxBarThickness: 48 }];
-  } else {
-    expDatasets = [{ label: '네이버 노출수', data: weeks.map(w => STATE.weeklyAgg[activeProduct]?.naver?.[w]?.exposure ?? null), backgroundColor: '#fb923c', borderRadius: 4, maxBarThickness: 48 }];
-  }
+  const expColor = activeChannel === 'naver' ? '#fb923c' : '#3b82f6';
+  const expLabel = activeChannel === 'combined' ? '주간 일평균 노출수 (통합)' : activeChannel === 'own' ? '주간 일평균 노출수 (자사몰)' : '주간 일평균 노출수 (네이버)';
+  const expDatasets = [{
+    label: expLabel,
+    data: weeks.map(w => weekAvg(activeChannel, w, 'exposure')),
+    backgroundColor: expColor, borderRadius: 4, maxBarThickness: 48,
+    _showLabels: true, _labelColor: colors.text, _labelFormat: v => numFmt(v)
+  }];
   document.getElementById('exposureTitle').textContent =
-    (activeChannel === 'combined' ? '주간 노출수 추이 (통합)' : activeChannel === 'own' ? '주간 노출수 추이 (자사몰)' : '주간 노출수 추이 (네이버)');
+    (activeChannel === 'combined' ? '주간 노출수 추이 (통합, 주간 일평균)' : activeChannel === 'own' ? '주간 노출수 추이 (자사몰, 주간 일평균)' : '주간 노출수 추이 (네이버, 주간 일평균)');
   charts.exposure = new Chart(document.getElementById('chartExposure'), {
     type: 'bar', data: { labels, datasets: expDatasets }, options: chartOptions(colors, false)
   });
 
-  // 전환율 추이 + 1월~현재 전체 평균선
+  // 전환율 추이 (주간 일평균 기준) + 1월~현재 전체 평균선
   destroyChart('conv');
   const overallConv = overallRate(activeChannel, 'conversion', 'exposure');
-  let convDatasets = [];
-  if (activeChannel === 'combined') {
-    convDatasets = [{ label: '통합 전환율', data: weeks.map(w => { const b = combinedBucket(activeProduct, w); return (b && b.exposure > 0) ? (b.conversion / b.exposure * 100) : null; }), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25 }];
-  } else if (activeChannel === 'own') {
-    convDatasets = [{ label: '자사몰 전환율', data: weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.own?.[w]; return b ? computeRates(b).convRate * 100 : null; }), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25 }];
-  } else {
-    convDatasets = [{ label: '네이버 전환율', data: weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.naver?.[w]; return b ? computeRates(b).convRate * 100 : null; }), borderColor: '#fb923c', backgroundColor: '#fb923c', tension: 0.25 }];
-  }
+  const convColor = activeChannel === 'naver' ? '#fb923c' : '#3b82f6';
+  const convLabel = activeChannel === 'combined' ? '통합 전환율' : activeChannel === 'own' ? '자사몰 전환율' : '네이버 전환율';
+  const convDatasets = [{
+    label: convLabel,
+    data: weeks.map(w => { const r = weekConvRate(activeChannel, w); return r !== null ? r * 100 : null; }),
+    borderColor: convColor, backgroundColor: convColor, tension: 0.25,
+    _showLabels: true, _labelColor: convColor, _labelFont: '10px sans-serif', _labelOffset: 8,
+    _labelFormat: v => v.toFixed(1) + '%'
+  }];
   if (overallConv !== null) convDatasets.push(avgLineDataset(overallConv * 100, `1월~현재 평균 (${pct(overallConv)})`, '#94a3b8', weeks.length));
   document.getElementById('convTitle').textContent =
-    (activeChannel === 'combined' ? '주간 전환율 추이 (통합, 전환수÷노출수)' : activeChannel === 'own' ? '주간 전환율 추이 (자사몰)' : '주간 전환율 추이 (네이버)');
+    (activeChannel === 'combined' ? '주간 전환율 추이 (통합, 주간 일평균 기준)' : activeChannel === 'own' ? '주간 전환율 추이 (자사몰)' : '주간 전환율 추이 (네이버)');
   charts.conv = new Chart(document.getElementById('chartConvRate'), {
     type: 'line', data: { labels, datasets: convDatasets }, options: chartOptions(colors, true)
   });
@@ -801,8 +967,8 @@ function renderCharts() {
     destroyChart('sellRate');
     const overallAdd = overallRate('own', 'add', 'exposure');
     const overallSell = overallRate('own', 'conversion', 'add');
-    const addData = weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.own?.[w]; return b ? computeRates(b).addRate * 100 : null; });
-    const sellData = weeks.map(w => { const b = STATE.weeklyAgg[activeProduct]?.own?.[w]; return b ? computeRates(b).sellRate * 100 : null; });
+    const addData = weeks.map(w => { const r = weekAddRate('own', w); return r !== null ? r * 100 : null; });
+    const sellData = weeks.map(w => { const r = weekSellRate('own', w); return r !== null ? r * 100 : null; });
     const addDatasets = [{ label: '담김율', data: addData, borderColor: '#a78bfa', backgroundColor: '#a78bfa', tension: 0.25 }];
     if (overallAdd !== null) addDatasets.push(avgLineDataset(overallAdd * 100, `1월~현재 평균 (${pct(overallAdd)})`, '#94a3b8', weeks.length));
     const sellDatasets = [{ label: '판매율', data: sellData, borderColor: '#22c55e', backgroundColor: '#22c55e', tension: 0.25 }];
@@ -820,40 +986,43 @@ function renderCharts() {
   }
 }
 
+// 통합 열은 항상 자사몰 자체 주간 일평균 + 네이버 자체 주간 일평균을 더한 값이다 (weekCombinedAvg 사용).
 function renderTable() {
   const table = document.getElementById('weeklyTable');
   const caption = document.getElementById('weeklyTableCaption');
   const weeks = STATE.weeks;
+  if (weeks.length === 0) { table.innerHTML = ''; if (caption) caption.textContent = ''; return; }
 
-  // 통합 노출수 / 전환수 / 전환율 각각의 피크 주차를 따로 찾는다 (지표별로 피크 주가 다를 수 있음)
-  let peakExpWeek = null, peakExpVal = -1;
-  let peakConvWeek = null, peakConvVal = -1;
-  let peakRateWeek = null, peakRateVal = -1;
+  // 통합 일평균 노출수 / 전환수 / 전환율 각각 따로 피크 주차를 찾는다 (지표별로 피크 주가 다를 수 있음 → 색상도 다르게)
+  let peakExpWeek = null, peakExpVal = -Infinity;
+  let peakConvWeek = null, peakConvVal = -Infinity;
+  let peakRateWeek = null, peakRateVal = -Infinity;
   weeks.forEach(w => {
-    const c = combinedBucket(activeProduct, w);
-    if (!c) return;
-    if (c.exposure > peakExpVal) { peakExpVal = c.exposure; peakExpWeek = w; }
-    if (c.conversion > peakConvVal) { peakConvVal = c.conversion; peakConvWeek = w; }
-    const rate = c.exposure > 0 ? c.conversion / c.exposure : -1;
-    if (rate > peakRateVal) { peakRateVal = rate; peakRateWeek = w; }
+    const exp = weekCombinedAvg(w, 'exposure');
+    const conv = weekCombinedAvg(w, 'conversion');
+    const rate = weekConvRate('combined', w);
+    if (exp !== null && exp > peakExpVal) { peakExpVal = exp; peakExpWeek = w; }
+    if (conv !== null && conv > peakConvVal) { peakConvVal = conv; peakConvWeek = w; }
+    if (rate !== null && rate > peakRateVal) { peakRateVal = rate; peakRateWeek = w; }
   });
-  if (caption) caption.textContent = '🏆 표시 = 통합 노출수·전환수·전환율 중 하나 이상 최고치를 기록한 주 · 각 셀의 ▲ = 그 지표의 최고치';
+  if (caption) caption.textContent = '🔵 통합 일평균 노출수 최고 · 🟣 통합 일평균 전환수 최고 · 🟢 통합 전환율 최고 (지표별로 최고 주가 다를 수 있어 색상을 다르게 표시했어요)';
 
   let head = `<thead><tr><th>주차</th>
     <th>자사몰 노출</th><th>자사몰 담김</th><th>자사몰 전환</th><th>담김율</th><th>전환율</th><th>판매율</th>
     <th>네이버 노출</th><th>네이버 전환</th><th>네이버 전환율</th>
-    <th>통합 노출</th><th>통합 전환</th><th>통합 전환율</th></tr></thead>`;
+    <th>통합 일평균 노출</th><th>통합 일평균 전환</th><th>통합 전환율</th></tr></thead>`;
   let body = '<tbody>';
   weeks.forEach(w => {
     const o = STATE.weeklyAgg[activeProduct]?.own?.[w];
     const n = STATE.weeklyAgg[activeProduct]?.naver?.[w];
     const or = computeRates(o), nr = computeRates(n);
-    const c = combinedBucket(activeProduct, w);
-    const cRate = (c && c.exposure > 0) ? c.conversion / c.exposure : null;
+    const cExp = weekCombinedAvg(w, 'exposure');
+    const cConv = weekCombinedAvg(w, 'conversion');
+    const cRate = weekConvRate('combined', w);
     const isExpPeak = w === peakExpWeek, isConvPeak = w === peakConvWeek, isRatePeak = w === peakRateWeek;
     const isAnyPeak = isExpPeak || isConvPeak || isRatePeak;
     body += `<tr class="${isAnyPeak ? 'peak-row' : ''}">
-      <td>${isAnyPeak ? '🏆 ' : ''}${weekMeta(w).label}</td>
+      <td>${weekMeta(w).label}</td>
       <td>${o ? numFmt(o.exposure) : '-'}</td>
       <td>${o ? numFmt(o.add) : '-'}</td>
       <td>${o ? numFmt(o.conversion) : '-'}</td>
@@ -863,49 +1032,58 @@ function renderTable() {
       <td>${n ? numFmt(n.exposure) : '-'}</td>
       <td>${n ? numFmt(n.conversion) : '-'}</td>
       <td>${n ? pct(nr.convRate) : '-'}</td>
-      <td>${c ? numFmt(c.exposure) : '-'}${isExpPeak ? ' ▲' : ''}</td>
-      <td>${c ? numFmt(c.conversion) : '-'}${isConvPeak ? ' ▲' : ''}</td>
-      <td>${c ? pct(cRate) : '-'}${isRatePeak ? ' ▲' : ''}</td>
+      <td class="${isExpPeak ? 'peak-exp' : ''}">${cExp !== null ? numFmt(cExp) : '-'}${isExpPeak ? ' 🔵' : ''}</td>
+      <td class="${isConvPeak ? 'peak-conv' : ''}">${cConv !== null ? numFmt(cConv) : '-'}${isConvPeak ? ' 🟣' : ''}</td>
+      <td class="${isRatePeak ? 'peak-rate' : ''}">${cRate !== null ? pct(cRate) : '-'}${isRatePeak ? ' 🟢' : ''}</td>
     </tr>`;
   });
   body += '</tbody>';
   table.innerHTML = head + body;
 }
 
+// 최근 7/14/30일 비교. combined는 자사몰 롤링 일평균 + 네이버 롤링 일평균을 독립적으로 계산해 더한 값이며,
+// 각 채널은 "자기 자신의" 최신 날짜를 기준으로 창(window)을 잡는다 (한 채널이 데이터 입력이 늦어도 다른 채널이 축소되지 않음).
 function renderRollingComparison() {
   const table = document.getElementById('rollingTable');
-  const arrOwn = STATE.daily[activeProduct]?.own || [];
-  const arrNaver = STATE.daily[activeProduct]?.naver || [];
-  const allDates = [...arrOwn, ...arrNaver].map(r => r.date);
-  if (allDates.length === 0) { table.innerHTML = ''; return; }
-  const maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
-
-  function windowSum(days, offset) {
-    const curEnd = new Date(maxDate); curEnd.setDate(curEnd.getDate() - offset * days);
-    const curStart = new Date(curEnd); curStart.setDate(curStart.getDate() - (days - 1));
-    return { start: curStart, end: curEnd, bucket: sumDailyRange(activeProduct, activeChannel, curStart, curEnd) };
-  }
+  const hasOwn = (STATE.daily[activeProduct]?.own || []).length > 0;
+  const hasNaver = (STATE.daily[activeProduct]?.naver || []).length > 0;
+  if (!hasOwn && !hasNaver) { table.innerHTML = ''; return; }
 
   const showSellRate = activeChannel === 'own';
-  let head = `<thead><tr><th>기간</th><th>일평균 노출수</th><th>일평균 전환수</th><th>전환율</th>${showSellRate ? '<th>일평균 담김수</th><th>판매율</th>' : ''}<th>일평균 노출수 증감 (직전 동일기간 대비)</th></tr></thead>`;
+  let head = `<thead><tr><th>기간</th><th>일평균 노출수</th><th>일평균 전환수</th><th>전환율</th>${showSellRate ? '<th>일평균 담김수</th><th>판매율</th>' : ''}<th>노출수 증감 (직전 동일기간 대비)</th><th>전환수 증감</th><th>전환율 증감</th></tr></thead>`;
   let body = '<tbody>';
   [7, 14, 30].forEach(days => {
-    const cur = windowSum(days, 0);
-    const prev = windowSum(days, 1);
-    const curR = rangeRates(cur.bucket);
-    const curAvgExp = cur.bucket.days > 0 ? cur.bucket.exposure / cur.bucket.days : 0;
-    const curAvgConv = cur.bucket.days > 0 ? cur.bucket.conversion / cur.bucket.days : 0;
-    const curAvgAdd = cur.bucket.days > 0 ? cur.bucket.add / cur.bucket.days : 0;
-    // 직전 기간이 이 창(window)만큼 완전히 채워져 있을 때만 증감률을 계산 (부분 데이터로 인한 왜곡 방지)
-    const prevAvgExp = prev.bucket.days === days ? prev.bucket.exposure / prev.bucket.days : null;
-    const d = deltaOf(curAvgExp, prevAvgExp, false, '직전 기간 일평균');
+    const curAvgExp = rollingAvg(activeChannel, days, 0, 'exposure');
+    const curAvgConv = rollingAvg(activeChannel, days, 0, 'conversion');
+    const curAvgAdd = rollingAvg(activeChannel, days, 0, 'add');
+    const curRate = rollingRate(activeChannel, days, 0, 'conversion', 'exposure');
+    const curSell = rollingRate(activeChannel, days, 0, 'conversion', 'add');
+
+    // 직전 기간이 이 창(window)만큼 완전히 채워져 있을 때만 증감을 계산 (부분 데이터로 인한 왜곡 방지)
+    const prevFilled = rollingWindowDays(activeChannel, days, 1) === days;
+    const prevAvgExp = prevFilled ? rollingAvg(activeChannel, days, 1, 'exposure') : null;
+    const prevAvgConv = prevFilled ? rollingAvg(activeChannel, days, 1, 'conversion') : null;
+    const prevRate = prevFilled ? rollingRate(activeChannel, days, 1, 'conversion', 'exposure') : null;
+
+    const dExp = deltaOf(curAvgExp, prevAvgExp, false, '직전 기간 일평균');
+    const dConv = deltaCount(curAvgConv, prevAvgConv, '건', '직전 기간 일평균');
+    const dRate = deltaOf(curRate, prevRate, true, '직전 기간');
+
+    let rangeLabel = '';
+    if (activeChannel !== 'combined') {
+      const w = channelRollingWindow(activeChannel, days, 0);
+      if (w) rangeLabel = ` (${fmtMD(w.start)}~${fmtMD(w.end)})`;
+    }
+
     body += `<tr>
-      <td>최근 ${days}일 (${fmtMD(cur.start)}~${fmtMD(cur.end)})</td>
-      <td>${numFmt(curAvgExp)}</td>
-      <td>${numFmt(curAvgConv)}</td>
-      <td>${pct(curR.convRate)}</td>
-      ${showSellRate ? `<td>${numFmt(curAvgAdd)}</td><td>${pct(curR.sellRate)}</td>` : ''}
-      <td class="delta ${d.cls}">${d.text}</td>
+      <td>최근 ${days}일${rangeLabel}</td>
+      <td>${curAvgExp !== null ? numFmt(curAvgExp) : '-'}</td>
+      <td>${curAvgConv !== null ? numFmt(curAvgConv) : '-'}</td>
+      <td>${curRate !== null ? pct(curRate) : '-'}</td>
+      ${showSellRate ? `<td>${curAvgAdd !== null ? numFmt(curAvgAdd) : '-'}</td><td>${curSell !== null ? pct(curSell) : '-'}</td>` : ''}
+      <td class="delta ${dExp.cls}">${dExp.text}</td>
+      <td class="delta ${dConv.cls}">${dConv.text}</td>
+      <td class="delta ${dRate.cls}">${dRate.text}</td>
     </tr>`;
   });
   body += '</tbody>';
@@ -913,46 +1091,43 @@ function renderRollingComparison() {
 }
 
 // 1월부터 데이터가 있는 마지막 달까지 월별로 일평균 지표를 나열한 표 (미래의 빈 달은 표시하지 않음)
+// 통합은 자사몰 월 일평균 + 네이버 월 일평균을 독립적으로 계산해 더한 값이다.
 function renderMonthlyComparison() {
   const box = document.getElementById('monthlyCompareBox');
   const months = STATE.months;
   if (months.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
 
-  function getBucket(mk) {
-    if (activeChannel === 'combined') return combinedMonthBucket(activeProduct, mk);
-    return STATE.monthlyAgg[activeProduct]?.[activeChannel]?.[mk] || null;
-  }
-
   const showOwnExtras = activeChannel === 'own';
-  let head = `<thead><tr><th>월</th><th>일수</th><th>일평균 노출수</th><th>일평균 전환수</th><th>전환율</th>${showOwnExtras ? '<th>일평균 담김수</th><th>담김율</th><th>판매율</th>' : ''}</tr></thead>`;
+  let head = `<thead><tr><th>월</th><th>일평균 노출수</th><th>일평균 전환수</th><th>전환율</th>${showOwnExtras ? '<th>일평균 담김수</th><th>담김율</th><th>판매율</th>' : ''}</tr></thead>`;
   let body = '<tbody>';
   let rowCount = 0;
   months.forEach(mk => {
-    const b = getBucket(mk);
-    if (!b || !b.days) return; // 데이터가 실제로 기재된 달까지만 표시
+    const avgExp = monthAvg(activeChannel, mk, 'exposure');
+    const avgConv = monthAvg(activeChannel, mk, 'conversion');
+    if (avgExp === null && avgConv === null) return; // 데이터가 실제로 기재된 달까지만 표시
     rowCount++;
-    const r = rangeRates(b);
-    const avgExp = b.exposure / b.days;
-    const avgConv = b.conversion / b.days;
-    const avgAdd = showOwnExtras ? (b.add || 0) / b.days : null;
+    const rate = monthConvRate(activeChannel, mk);
+    const avgAdd = showOwnExtras ? monthAvg('own', mk, 'add') : null;
+    const addRate = showOwnExtras ? monthAddRate('own', mk) : null;
+    const sellRate = showOwnExtras ? monthSellRate('own', mk) : null;
     body += `<tr>
       <td>${monthLabel(mk)}</td>
-      <td>${b.days}일</td>
-      <td>${numFmt(avgExp)}</td>
-      <td>${numFmt(avgConv)}</td>
-      <td>${pct(r.convRate)}</td>
-      ${showOwnExtras ? `<td>${numFmt(avgAdd)}</td><td>${pct(r.addRate)}</td><td>${pct(r.sellRate)}</td>` : ''}
+      <td>${avgExp !== null ? numFmt(avgExp) : '-'}</td>
+      <td>${avgConv !== null ? numFmt(avgConv) : '-'}</td>
+      <td>${rate !== null ? pct(rate) : '-'}</td>
+      ${showOwnExtras ? `<td>${avgAdd !== null ? numFmt(avgAdd) : '-'}</td><td>${addRate !== null ? pct(addRate) : '-'}</td><td>${sellRate !== null ? pct(sellRate) : '-'}</td>` : ''}
     </tr>`;
   });
   body += '</tbody>';
 
   if (rowCount === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
   box.innerHTML = `<div style="overflow-x:auto;"><table>${head}${body}</table></div>
-    <p style="font-size:12px;color:var(--sub);margin-top:8px;">※ 모든 값은 일평균 기준이라 진행 중인 달도 다른 달과 공정하게 비교할 수 있습니다.</p>`;
+    <p style="font-size:12px;color:var(--sub);margin-top:8px;">※ 모든 값은 일평균 기준이라 진행 중인 달도 다른 달과 공정하게 비교할 수 있습니다. 통합은 자사몰 일평균 + 네이버 일평균을 더한 값입니다.</p>`;
 }
 
 // 노출수/전환수/전환율 각각 따로 피크 시점을 찾아 표로 정리 (지표마다 피크 주/달이 다를 수 있음)
-function peakTableRow(label, items, getVal, curItem, fmt, itemLabelFn) {
+// compareMode: 'ratio' → 피크 대비 비율%(노출수), 'diff' → 건수 차이(전환수), 'pp' → %p 차이(전환율)
+function peakTableRow(label, items, getVal, curItem, fmt, itemLabelFn, compareMode) {
   let peak = null, peakVal = -Infinity;
   items.forEach(it => {
     const v = getVal(it);
@@ -960,37 +1135,48 @@ function peakTableRow(label, items, getVal, curItem, fmt, itemLabelFn) {
   });
   const curVal = getVal(curItem);
   const hasPeak = peak !== null && peakVal > -Infinity;
-  const ratio = (hasPeak && peakVal > 0 && curVal !== null && curVal !== undefined) ? (curVal / peakVal * 100) : null;
   const isPeakNow = hasPeak && peak === curItem;
+  let compareText = '-', compareCls = 'flat';
+  if (hasPeak && curVal !== null && curVal !== undefined) {
+    if (compareMode === 'diff') {
+      const diff = curVal - peakVal;
+      compareCls = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
+      const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '-';
+      compareText = isPeakNow ? '🏆 현재가 최고' : `${arrow} 피크 대비 ${Math.abs(diff).toFixed(1)}건 ${diff > 0 ? '많음' : '적음'}`;
+    } else if (compareMode === 'pp') {
+      const diffPP = (curVal - peakVal) * 100;
+      compareCls = diffPP > 0 ? 'up' : diffPP < 0 ? 'down' : 'flat';
+      const arrow = diffPP > 0 ? '▲' : diffPP < 0 ? '▼' : '-';
+      compareText = isPeakNow ? '🏆 현재가 최고' : `${arrow} 피크 대비 ${Math.abs(diffPP).toFixed(1)}%p ${diffPP > 0 ? '높음' : '낮음'}`;
+    } else {
+      const ratio = peakVal > 0 ? (curVal / peakVal * 100) : null;
+      compareCls = isPeakNow ? 'up' : 'flat';
+      compareText = ratio !== null ? ratio.toFixed(1) + '%' + (isPeakNow ? ' 🏆 현재가 최고' : '') : '-';
+    }
+  }
   return `<tr${isPeakNow ? ' class="peak-row"' : ''}>
     <td>${label}</td>
     <td>${hasPeak ? itemLabelFn(peak) : '-'}</td>
     <td>${hasPeak ? fmt(peakVal) : '-'}</td>
     <td>${(curVal !== null && curVal !== undefined) ? fmt(curVal) : '-'}</td>
-    <td>${ratio !== null ? ratio.toFixed(1) + '%' + (isPeakNow ? ' 🏆 현재가 최고' : '') : '-'}</td>
+    <td class="delta ${compareCls}">${compareText}</td>
   </tr>`;
 }
 
+// 통합은 weekAvg/monthAvg를 통해 항상 자사몰 자체 평균 + 네이버 자체 평균의 합으로 계산된다.
 function renderPeakComparison() {
   const box = document.getElementById('peakCompareBox');
   const weeks = STATE.weeks;
   const months = STATE.months;
   if (weeks.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
 
-  function weekBucket(wi) {
-    return activeChannel === 'combined' ? combinedBucket(activeProduct, wi) : STATE.weeklyAgg[activeProduct]?.[activeChannel]?.[wi];
-  }
-  function monthBucket(mk) {
-    return activeChannel === 'combined' ? combinedMonthBucket(activeProduct, mk) : STATE.monthlyAgg[activeProduct]?.[activeChannel]?.[mk];
-  }
-
   const curWeek = weeks[weeks.length - 1];
   let html = `<div style="overflow-x:auto;"><table>
-    <thead><tr><th>주간 지표</th><th>피크 시점</th><th>피크 값</th><th>현재 (${weekMeta(curWeek).short})</th><th>피크 대비</th></tr></thead>
+    <thead><tr><th>주간 지표 (일평균)</th><th>피크 시점</th><th>피크 값</th><th>현재 (${weekMeta(curWeek).short})</th><th>피크 대비</th></tr></thead>
     <tbody>
-      ${peakTableRow('노출수', weeks, w => weekBucket(w)?.exposure, curWeek, numFmt, w => weekMeta(w).label)}
-      ${peakTableRow('전환수', weeks, w => weekBucket(w)?.conversion, curWeek, numFmt, w => weekMeta(w).label)}
-      ${peakTableRow('전환율', weeks, w => { const b = weekBucket(w); return (b && b.exposure > 0) ? b.conversion / b.exposure : null; }, curWeek, pct, w => weekMeta(w).label)}
+      ${peakTableRow('일평균 노출수', weeks, w => weekAvg(activeChannel, w, 'exposure'), curWeek, numFmt, w => weekMeta(w).label, 'ratio')}
+      ${peakTableRow('일평균 전환수', weeks, w => weekAvg(activeChannel, w, 'conversion'), curWeek, numFmt, w => weekMeta(w).label, 'diff')}
+      ${peakTableRow('전환율', weeks, w => weekConvRate(activeChannel, w), curWeek, pct, w => weekMeta(w).label, 'pp')}
     </tbody>
   </table></div>`;
 
@@ -999,9 +1185,9 @@ function renderPeakComparison() {
     html += `<div style="overflow-x:auto; margin-top:16px;"><table>
       <thead><tr><th>월간 지표 (일평균)</th><th>피크 월</th><th>피크 값</th><th>이번달 (${monthLabel(curMonth)})</th><th>피크 대비</th></tr></thead>
       <tbody>
-        ${peakTableRow('일평균 노출수', months, m => { const b = monthBucket(m); return (b && b.days > 0) ? b.exposure / b.days : null; }, curMonth, numFmt, m => monthLabel(m))}
-        ${peakTableRow('일평균 전환수', months, m => { const b = monthBucket(m); return (b && b.days > 0) ? b.conversion / b.days : null; }, curMonth, numFmt, m => monthLabel(m))}
-        ${peakTableRow('전환율', months, m => { const b = monthBucket(m); return (b && b.exposure > 0) ? b.conversion / b.exposure : null; }, curMonth, pct, m => monthLabel(m))}
+        ${peakTableRow('일평균 노출수', months, m => monthAvg(activeChannel, m, 'exposure'), curMonth, numFmt, m => monthLabel(m), 'ratio')}
+        ${peakTableRow('일평균 전환수', months, m => monthAvg(activeChannel, m, 'conversion'), curMonth, numFmt, m => monthLabel(m), 'diff')}
+        ${peakTableRow('전환율', months, m => monthConvRate(activeChannel, m), curMonth, pct, m => monthLabel(m), 'pp')}
       </tbody>
     </table></div>`;
   }
@@ -1009,58 +1195,84 @@ function renderPeakComparison() {
   box.innerHTML = html;
 }
 
-function weightedAvg(buckets, numKey, denKey) {
-  const num = buckets.reduce((s, b) => s + (b[numKey] || 0), 0);
-  const den = buckets.reduce((s, b) => s + (b[denKey] || 0), 0);
-  return den > 0 ? num / den : null;
+// 채널의 주간 전환율 기준 최고/최저 주를 찾는다 (해당 채널 데이터가 실제로 있는 주만 대상)
+function bestWorstWeek(channel) {
+  const weeks = STATE.weeks.filter(w => weekChannelAvg(channel, w, 'exposure') !== null);
+  if (weeks.length === 0) return null;
+  let bestW = weeks[0], bestR = -Infinity, worstW = weeks[0], worstR = Infinity;
+  weeks.forEach(w => {
+    const r = weekConvRate(channel, w);
+    if (r === null) return;
+    if (r > bestR) { bestR = r; bestW = w; }
+    if (r < worstR) { worstR = r; worstW = w; }
+  });
+  if (bestR === -Infinity) return null;
+  return { bestW, bestR, worstW, worstR };
 }
 
+// 채널 하나(자사몰/네이버)의 인사이트 블록: 26년 누적 일평균 vs 현재(최근 7일) 수준, 성적 좋았던/아쉬웠던 주
+function insightChannelBlock(icon, name, channel) {
+  const totals = channelTotals(channel);
+  if (totals.days === 0) return '';
+  const ytdExp = totals.exposure / totals.days;
+  const ytdConv = totals.conversion / totals.days;
+  const curExp = rollingAvg(channel, 7, 0, 'exposure');
+  const curConv = rollingAvg(channel, 7, 0, 'conversion');
+  const expDelta = curExp !== null ? deltaOf(curExp, ytdExp, false, '26년 누적 평균') : null;
+  const convDelta = curConv !== null ? deltaOf(curConv, ytdConv, false, '26년 누적 평균') : null;
+  const bw = bestWorstWeek(channel);
+  let rows = `
+    <div class="insight-row"><span>26년 누적 일평균 노출수</span><span class="val">${numFmt(ytdExp)}</span></div>
+    <div class="insight-row"><span>현재 수준 (최근 7일 일평균)</span><span class="val">${curExp !== null ? numFmt(curExp) : '-'}${expDelta ? ` <span class="delta ${expDelta.cls}">${expDelta.text}</span>` : ''}</span></div>
+    <div class="insight-row"><span>26년 누적 일평균 전환수</span><span class="val">${numFmt(ytdConv)}</span></div>
+    <div class="insight-row"><span>현재 수준 (최근 7일 일평균)</span><span class="val">${curConv !== null ? numFmt(curConv) : '-'}${convDelta ? ` <span class="delta ${convDelta.cls}">${convDelta.text}</span>` : ''}</span></div>`;
+  if (bw) {
+    rows += `
+    <div class="insight-row"><span>🏆 성적 좋았던 주 (전환율 기준)</span><span class="val">${weekMeta(bw.bestW).label} · ${pct(bw.bestR)}</span></div>
+    <div class="insight-row"><span>😥 아쉬웠던 주 (전환율 기준)</span><span class="val">${weekMeta(bw.worstW).label} · ${pct(bw.worstR)}</span></div>`;
+  }
+  return `<div class="insight-block"><h3>${icon} ${name}</h3>${rows}</div>`;
+}
+
+// 인사이트를 줄글 대신 한눈에 보이는 카드형 통계 블록으로 표시
 function renderInsights() {
   const box = document.getElementById('insightBox');
   const weeks = STATE.weeks;
   if (weeks.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
 
-  const weeksWithOwn = weeks.filter(w => STATE.weeklyAgg[activeProduct]?.own?.[w]);
-  const weeksWithNaver = weeks.filter(w => STATE.weeklyAgg[activeProduct]?.naver?.[w]);
-  const ownBuckets = weeksWithOwn.map(w => STATE.weeklyAgg[activeProduct].own[w]);
-  const naverBuckets = weeksWithNaver.map(w => STATE.weeklyAgg[activeProduct].naver[w]);
+  const ownTotals = channelTotals('own');
+  const naverTotals = channelTotals('naver');
+  let html = '<div class="insight-grid">';
 
-  let html = '';
+  html += insightChannelBlock('🛍️', '자사몰', 'own');
+  html += insightChannelBlock('🟢', '네이버', 'naver');
 
-  if (ownBuckets.length > 0) {
-    const rates = ownBuckets.map(computeRates);
-    const bestIdx = rates.reduce((bi, r, i) => (r.convRate ?? -1) > (rates[bi].convRate ?? -1) ? i : bi, 0);
-    const worstIdx = rates.reduce((wi_, r, i) => (r.convRate ?? 2) < (rates[wi_].convRate ?? 2) ? i : wi_, 0);
-    const bestW = weeksWithOwn[bestIdx];
-    const worstW = weeksWithOwn[worstIdx];
-    html += `<p>🛍️ <b>자사몰</b>은 지금까지 <b>${ownBuckets.reduce((s, b) => s + b.exposure, 0).toLocaleString('ko-KR')}회</b> 노출됐고, 전환율은 <b>${pct(weightedAvg(ownBuckets, 'conversion', 'exposure'))}</b>예요. 담김 이후 실제 구매로 이어진 판매율은 <b>${pct(weightedAvg(ownBuckets, 'conversion', 'add'))}</b>입니다. 성적이 가장 좋았던 주는 <b>${weekMeta(bestW).label}</b>(전환율 ${pct(rates[bestIdx].convRate)}), 가장 아쉬웠던 주는 <b>${weekMeta(worstW).label}</b>(전환율 ${pct(rates[worstIdx].convRate)})예요.</p>`;
-  }
-  if (naverBuckets.length > 0) {
-    html += `<p>🟢 <b>네이버</b>는 지금까지 <b>${naverBuckets.reduce((s, b) => s + b.exposure, 0).toLocaleString('ko-KR')}회</b> 노출에 전환율 <b>${pct(weightedAvg(naverBuckets, 'conversion', 'exposure'))}</b>를 기록 중이에요.</p>`;
-  }
-  if (ownBuckets.length > 0 && naverBuckets.length > 0) {
-    const ownConv = weightedAvg(ownBuckets, 'conversion', 'exposure');
-    const naverConv = weightedAvg(naverBuckets, 'conversion', 'exposure');
-    const better = ownConv > naverConv ? '자사몰' : '네이버';
-    const gapPP = Math.abs(ownConv - naverConv) * 100;
-    html += `<p>⚖️ 두 채널을 비교하면 <b>${better}</b>의 전환율이 <b>${gapPP.toFixed(1)}%p</b> 더 높아요 (자사몰 ${pct(ownConv)} · 네이버 ${pct(naverConv)}). 예산이나 트래픽을 더 배분할 채널을 고를 때 참고하세요.</p>`;
-
-    const combinedExposure = ownBuckets.reduce((s, b) => s + b.exposure, 0) + naverBuckets.reduce((s, b) => s + b.exposure, 0);
-    const combinedConversion = ownBuckets.reduce((s, b) => s + b.conversion, 0) + naverBuckets.reduce((s, b) => s + b.conversion, 0);
-    const combinedRate = combinedExposure > 0 ? combinedConversion / combinedExposure : null;
-    html += `<p>📊 자사몰 + 네이버를 합친 <b>통합 전환율은 ${pct(combinedRate)}</b>이고, 지금까지 총 <b>${combinedConversion.toLocaleString('ko-KR')}건</b>의 전환이 발생했어요.</p>`;
-  }
-  if (weeks.length >= 2) {
-    const lastW = weeks[weeks.length - 1], prevW = weeks[weeks.length - 2];
-    const cur = combinedBucket(activeProduct, lastW);
-    const prev = combinedBucket(activeProduct, prevW);
-    if (cur && prev) {
-      const d = deltaOf(cur.exposure, prev.exposure);
-      const trendWord = d.cls === 'up' ? '오르는' : d.cls === 'down' ? '떨어지는' : '큰 변화 없는';
-      html += `<p>📈 가장 최근 주(${weekMeta(lastW).label}) 통합 노출수는 전주 대비 <b>${d.text.replace('전주 대비 ', '')}</b> — 최근 흐름은 ${trendWord} 추세예요.</p>`;
+  if (ownTotals.days > 0 && naverTotals.days > 0) {
+    const ownRate = ownTotals.exposure > 0 ? ownTotals.conversion / ownTotals.exposure : null;
+    const naverRate = naverTotals.exposure > 0 ? naverTotals.conversion / naverTotals.exposure : null;
+    if (ownRate !== null && naverRate !== null) {
+      const better = naverRate >= ownRate ? '네이버' : '자사몰';
+      const gapPP = Math.abs(naverRate - ownRate) * 100;
+      html += `<div class="insight-block">
+        <h3>⚖️ 채널 비교</h3>
+        <div class="insight-row"><span>자사몰 누적 전환율</span><span class="val">${pct(ownRate)}</span></div>
+        <div class="insight-row"><span>네이버 누적 전환율</span><span class="val">${pct(naverRate)}</span></div>
+        <div class="insight-row"><span><b>${better}</b>가 더 높음</span><span class="val">${gapPP.toFixed(1)}%p</span></div>
+      </div>`;
     }
+
+    const combinedExposure = ownTotals.exposure + naverTotals.exposure;
+    const combinedConversion = ownTotals.conversion + naverTotals.conversion;
+    const combinedRate = combinedExposure > 0 ? combinedConversion / combinedExposure : null;
+    html += `<div class="insight-block insight-highlight">
+      <h3>📊 통합 (자사몰+네이버)</h3>
+      <div class="insight-row"><span>통합 전환율</span><span class="val">${pct(combinedRate)}</span></div>
+      <div class="insight-row"><span>26년 누적 전환 건수</span><span class="val">${combinedConversion.toLocaleString('ko-KR')}건</span></div>
+    </div>`;
   }
-  box.innerHTML = html || '<div class="empty">인사이트를 계산할 데이터가 부족합니다</div>';
+
+  html += '</div>';
+  box.innerHTML = html;
 }
 
 function renderDebug() {
