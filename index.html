@@ -33,12 +33,13 @@
   }
   header h1{margin:0 0 4px; font-size:22px;}
   header p{margin:0; color:#cbd5e1; font-size:13px;}
-  #themeToggle{
+  #themeToggle, #openSheetBtn{
     padding:8px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.3);
     background:rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:13px; font-weight:600;
-    white-space:nowrap;
+    white-space:nowrap; text-decoration:none; display:inline-block;
   }
-  #themeToggle:hover{background:rgba(255,255,255,0.18);}
+  #themeToggle:hover, #openSheetBtn:hover{background:rgba(255,255,255,0.18);}
+  #openSheetBtn.disabled{opacity:0.4; cursor:not-allowed; pointer-events:none;}
   .wrap{max-width:1180px; margin:0 auto; padding:20px 24px 60px;}
   .banner{
     padding:10px 16px; border-radius:8px; font-size:13px; margin-bottom:18px;
@@ -90,7 +91,10 @@
     <h1>제품별 주간 성과 대시보드</h1>
     <p>2026 자사몰 &amp; 네이버 · 노출/담김/전환 데이터 기반 주간 분석</p>
   </div>
-  <button id="themeToggle">☀ 라이트 모드</button>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <a id="openSheetBtn" href="#" target="_blank" rel="noopener noreferrer">📊 스프레드시트 열기</a>
+    <button id="themeToggle">☀ 라이트 모드</button>
+  </div>
 </header>
 
 <div class="wrap">
@@ -159,14 +163,12 @@
   <details>
     <summary>실제 구글 스프레드시트와 연동하는 방법</summary>
     <div class="content">
-      지금은 1월 샘플 데이터로 동작합니다. 실제 시트와 연결하려면:<br><br>
       1) 구글 시트 우측 상단 <b>공유</b> → "링크가 있는 모든 사용자 - 뷰어"로 권한을 변경합니다.<br>
-      2) 시트 주소창의 URL에서 <code>https://docs.google.com/spreadsheets/d/<b>여기부분</b>/edit</code> 의 <b>여기부분</b>(시트 ID)을 복사합니다.<br>
-      3) 이 파일 상단 스크립트의 <code>CONFIG.SHEET_ID</code> 값에 붙여넣습니다.<br>
-      4) 탭(시트) 이름이 실제로 <code>2026 자사몰</code>, <code>2026 네이버</code>와 정확히 일치하는지 확인합니다 (다르면 CONFIG의 시트명도 함께 수정).<br>
-      5) 파일을 다시 열면 구글 시트에서 실시간으로 데이터를 불러옵니다.<br><br>
-      <b>범위/기간을 별도로 알려주실 필요는 없습니다.</b> 1월 1일부터 12월 31일까지 시트에 있는 데이터를 그대로 읽어서 주차를 자동으로 계산하므로, 데이터가 늘어날수록 대시보드도 자동으로 반영됩니다.<br><br>
-      <b>제품 추가:</b> 기존 제품 블록 오른쪽에 같은 형식(제품명 → 노출수/담김수/전환수/담김율/전환율/판매율 헤더 → 일자별 데이터)으로 이어 붙이면 이 대시보드가 자동으로 인식해 탭이 추가됩니다.
+      2) 시트 주소창의 URL에서 <code>https://docs.google.com/spreadsheets/d/<b>여기부분</b>/edit</code> 의 <b>여기부분</b>(시트 ID)을 복사해 <code>CONFIG.SHEET_ID</code>에 넣습니다.<br>
+      3) 탭(시트) 이름이 <code>CONFIG.OWN_SHEET_NAME</code> / <code>CONFIG.NAVER_SHEET_NAME</code>과 정확히 일치하는지 확인합니다.<br>
+      4) 파일을 다시 열면 구글 시트에서 실시간으로 데이터를 불러옵니다.<br><br>
+      <b>범위/기간을 별도로 알려주실 필요는 없습니다.</b> 1월 1일부터 12월 31일까지, 그리고 앞으로 늘어나는 데이터까지 시트에 있는 만큼 자동으로 읽어서 주차/월을 계산합니다.<br><br>
+      <b>제품(열) 배치:</b> 한 행에 제품명(예: 킥프레임, PH 스탠드 등), 그 아래 열 이름 행(일자/노출수/담김수/전환수/담김율/전환율/판매율), 그 아래 일자별 데이터 순으로 오른쪽으로 나열되면 자동 인식합니다. 제품명 행과 열 이름 행 사이에 빈 줄이 있거나, 제품 블록 사이에 빈 열이 있어도(예: A~G열=제품1, H열=공백, I~O열=제품2) 문제없이 인식합니다.
     </div>
   </details>
 </div>
@@ -298,17 +300,38 @@ function parseKDate(s, year) {
 // 공백 제거 후 비교 (전각/후행 공백 등으로 인한 매칭 실패 방지)
 function normLabel(s) { return (s || '').replace(/\s+/g, '').trim(); }
 
-// 헤더 2행(제품명 행, 지표명 행)에서 제품 블록 위치를 감지 (오른쪽으로 나열된 제품 블록 대응)
+// 헤더 행(지표명 행: 일자/노출수/담김수/...)의 위치를 자동으로 찾는다.
+// 제품명 행과 헤더 행 사이에 빈 줄이 끼어 있어도(예: 1행=제품명, 2행=빈 줄, 3행=헤더) 정상 동작하도록
+// 위에서부터 최대 10행을 훑어 "노출수" 셀이 있는 행을 헤더 행으로 판단한다.
+function findHeaderRowIndex(rows) {
+  const maxScan = Math.min(rows.length, 10);
+  for (let i = 0; i < maxScan; i++) {
+    if (rows[i].some(c => normLabel(c) === '노출수')) return i;
+  }
+  return 1; // 못 찾으면 기존 가정(2번째 행)으로 폴백
+}
+
+// 헤더 행 위쪽에서 실제로 텍스트(제품명)가 들어있는 가장 가까운 행을 제품명 행으로 판단
+function findNameRowIndex(rows, headerIdx) {
+  for (let i = headerIdx - 1; i >= 0; i--) {
+    if (rows[i].slice(1).some(c => (c || '').trim() !== '')) return i;
+  }
+  return Math.max(headerIdx - 1, 0);
+}
+
+// 제품명 행 + 헤더 행에서 제품 블록 위치를 감지 (오른쪽으로 나열된 제품 블록, 블록 사이 빈 열 대응)
 function detectBlocks(nameRow, headerRow) {
   const blocks = [];
-  let currentName = '';
+  // 첫 번째 제품명은 A열(0번 인덱스)에 있을 수 있다 (A열이 날짜 열이면서 동시에 제품명 행에서는 제품명 셀이기도 함)
+  let currentName = (nameRow[0] || '').trim();
   for (let i = 1; i < headerRow.length; i++) {
     const nm = (nameRow[i] || '').trim();
     if (nm !== '') currentName = nm;
     const label = (headerRow[i] || '').trim();
     if (normLabel(label) === '노출수') {
       blocks.push({ name: currentName || ('제품' + (blocks.length + 1)), start: i, metrics: [label] });
-    } else if (blocks.length > 0 && label !== '') {
+    } else if (blocks.length > 0 && label !== '' && normLabel(label) !== '일자') {
+      // 각 제품 블록이 자체 "일자" 열을 갖고 있어도(예: I열=일자, J열=노출수...) 이전 블록의 지표 목록을 오염시키지 않도록 제외
       blocks[blocks.length - 1].metrics.push(label);
     }
   }
@@ -319,23 +342,24 @@ function detectBlocks(nameRow, headerRow) {
 function analyzeCSV(csvText) {
   const rows = parseCSV(csvText);
   if (rows.length < 2) return { rowCount: rows.length, headerRow: [], blocks: [], preview: rows.slice(0, 6) };
-  const nameRow = rows[0], headerRow = rows[1];
-  const blocks = detectBlocks(nameRow, headerRow);
-  return { rowCount: rows.length, headerRow, blocks, preview: rows.slice(0, 6) };
+  const headerIdx = findHeaderRowIndex(rows);
+  const nameIdx = findNameRowIndex(rows, headerIdx);
+  const blocks = detectBlocks(rows[nameIdx], rows[headerIdx]);
+  return { rowCount: rows.length, headerRow: rows[headerIdx], blocks, preview: rows.slice(0, 6) };
 }
 
 // CSV 전체를 파싱해 { productName: [{date, exposure, add, conversion}, ...] } 형태로 반환
 function parseChannelCSV(csvText, year) {
   const rows = parseCSV(csvText);
-  if (rows.length < 3) return {};
-  const nameRow = rows[0];
-  const headerRow = rows[1];
-  const blocks = detectBlocks(nameRow, headerRow);
+  if (rows.length < 2) return {};
+  const headerIdx = findHeaderRowIndex(rows);
+  const nameIdx = findNameRowIndex(rows, headerIdx);
+  const blocks = detectBlocks(rows[nameIdx], rows[headerIdx]);
   const result = {};
   blocks.forEach(b => { result[b.name] = []; });
   const normMetrics = blocks.map(b => b.metrics.map(normLabel));
 
-  for (let r = 2; r < rows.length; r++) {
+  for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
     const dateCell = row[0];
     const date = parseKDate(dateCell, year);
@@ -937,7 +961,7 @@ function renderDebug() {
     html += '</p>';
     html += `<p style="font-size:12px;">2번째 행(지표명) 원본: ${diag.headerRow.length ? diag.headerRow.map(h => '"' + h + '"').join(', ') : '(비어있음)'}</p>`;
     if (diag.blocks.length === 0 && diag.rowCount > 0) {
-      html += `<p style="font-size:12px;color:var(--bad);">→ "노출수"라는 이름의 열을 2번째 행에서 찾지 못했습니다. 시트 1행이 제품명, 2행이 노출수/전환수 등 열 이름인지 확인해주세요. (제목 행이 하나 더 있으면 1행이 밀립니다)</p>`;
+      html += `<p style="font-size:12px;color:var(--bad);">→ 위쪽 10개 행 안에서 "노출수"라는 이름의 열을 찾지 못했습니다. 열 이름이 정확히 "노출수"인지(오타/다른 표현 아닌지) 확인해주세요.</p>`;
     }
     html += '<pre style="white-space:pre-wrap;font-size:11px;background:var(--code-bg);padding:8px;border-radius:6px;overflow-x:auto;">' +
       diag.preview.map((r, i) => (i + 1) + ': ' + r.join(' | ')).join('\n') + '</pre>';
@@ -1002,6 +1026,16 @@ document.getElementById('themeToggle').addEventListener('click', () => {
   try { savedTheme = localStorage.getItem('dashboardTheme') || 'dark'; } catch (e) {}
   document.documentElement.setAttribute('data-theme', savedTheme);
   document.getElementById('themeToggle').textContent = savedTheme === 'dark' ? '☀ 라이트 모드' : '🌙 다크 모드';
+
+  const sheetBtn = document.getElementById('openSheetBtn');
+  if (CONFIG.SHEET_ID && CONFIG.SHEET_ID.trim() !== '') {
+    sheetBtn.href = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/edit`;
+    sheetBtn.classList.remove('disabled');
+  } else {
+    sheetBtn.href = '#';
+    sheetBtn.classList.add('disabled');
+    sheetBtn.title = 'CONFIG.SHEET_ID를 설정하면 활성화됩니다';
+  }
 
   await loadData();
   renderBanner();
