@@ -943,8 +943,21 @@ function avgLineDataset(value, label, color, n) {
   };
 }
 
+// 아직 7일치 데이터가 다 쌓이지 않은(진행 중인) 주는 "완성된 주"가 아니므로 주차별 통계·그래프에서 제외한다.
+// 존재하는 채널(자사몰/네이버) 버킷 중 하나라도 7일 미만이면 미완성으로 본다.
+function isWeekComplete(wi) {
+  const o = STATE.weeklyAgg[activeProduct]?.own?.[wi];
+  const n = STATE.weeklyAgg[activeProduct]?.naver?.[wi];
+  if (!o && !n) return false;
+  if (o && o.days < 7) return false;
+  if (n && n.days < 7) return false;
+  return true;
+}
+// 완성된 주만 남긴 목록 (보통 진행 중인 마지막 주 하나만 제외됨 → 자연히 "전주차까지만" 보여짐)
+function completeWeeks() { return STATE.weeks.filter(isWeekComplete); }
+
 function renderCharts() {
-  const weeks = STATE.weeks;
+  const weeks = completeWeeks();
   const labels = weeks.map(w => weekMeta(w).short);
   const colors = getThemeColors();
 
@@ -1013,7 +1026,7 @@ function renderCharts() {
 function renderTable() {
   const table = document.getElementById('weeklyTable');
   const caption = document.getElementById('weeklyTableCaption');
-  const weeks = STATE.weeks;
+  const weeks = completeWeeks(); // 7일이 다 안 쌓인 진행 중인 주는 제외 (전주차까지만 표시)
   if (weeks.length === 0) { table.innerHTML = ''; if (caption) caption.textContent = ''; return; }
 
   // 통합 일평균 노출수 / 전환수 / 전환율 각각 따로 피크 주차를 찾는다 (지표별로 피크 주가 다를 수 있음 → 색상도 다르게)
@@ -1187,9 +1200,10 @@ function peakTableRow(label, items, getVal, curItem, fmt, itemLabelFn, compareMo
 }
 
 // 통합은 weekAvg/monthAvg를 통해 항상 자사몰 자체 평균 + 네이버 자체 평균의 합으로 계산된다.
+// 주간 지표는 7일이 다 안 쌓인 진행 중인 주를 제외한 "완성된 주" 기준으로만 비교한다.
 function renderPeakComparison() {
   const box = document.getElementById('peakCompareBox');
-  const weeks = STATE.weeks;
+  const weeks = completeWeeks();
   const months = STATE.months;
   if (weeks.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
 
@@ -1218,9 +1232,9 @@ function renderPeakComparison() {
   box.innerHTML = html;
 }
 
-// 채널의 주간 전환율 기준 최고/최저 주를 찾는다 (해당 채널 데이터가 실제로 있는 주만 대상)
+// 채널의 주간 전환율 기준 최고/최저 주를 찾는다 (해당 채널 데이터가 실제로 있고, 7일이 다 쌓인 완성된 주만 대상)
 function bestWorstWeek(channel) {
-  const weeks = STATE.weeks.filter(w => weekChannelAvg(channel, w, 'exposure') !== null);
+  const weeks = completeWeeks().filter(w => weekChannelAvg(channel, w, 'exposure') !== null);
   if (weeks.length === 0) return null;
   let bestW = weeks[0], bestR = -Infinity, worstW = weeks[0], worstR = Infinity;
   weeks.forEach(w => {
