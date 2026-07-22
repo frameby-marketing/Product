@@ -147,7 +147,12 @@
   <div id="tabs" class="tabs"></div>
 
   <div id="overviewSection" class="card" style="display:none;">
-    <h2>전체 제품 종합 — 이번달 vs 지난달 평균</h2>
+    <h2>전체 제품 종합</h2>
+    <div class="channel-toggle" id="overviewPeriodToggle">
+      <button data-period="month" class="active">이번달 vs 지난달</button>
+      <button data-period="7d">최근 7일 vs 직전 7일</button>
+      <button data-period="14d">최근 14일 vs 직전 14일</button>
+    </div>
     <div id="overviewBox"></div>
   </div>
 
@@ -577,6 +582,7 @@ let activeProduct = null;
 let activeChannel = 'combined';
 let charts = {};
 let overviewCharts = {};
+let overviewPeriod = 'month'; // 'month' | '7d' | '14d'
 let insightCharts = {};
 let rollingCharts = {};
 let peakCharts = {};
@@ -735,28 +741,34 @@ function sumDailyRange(product, channel, startDate, endDate) {
 
 // 채널별 롤링(최근 N일) 윈도우 — 각 채널 "자기 자신의" 최신 날짜를 기준으로 윈도우를 잡는다.
 // (통합 최신일 하나로 두 채널을 동시에 자르면, 입력이 늦은 채널의 최근 실적이 실제보다 적게 반영되는 문제가 있었음)
-function channelRollingWindow(channel, days, offset) {
-  const arr = STATE.daily[activeProduct]?.[channel] || [];
+function channelRollingWindowFor(product, channel, days, offset) {
+  const arr = STATE.daily[product]?.[channel] || [];
   if (arr.length === 0) return null;
   const maxDate = arr.reduce((mx, r) => r.date > mx ? r.date : mx, arr[0].date);
   const curEnd = new Date(maxDate); curEnd.setDate(curEnd.getDate() - offset * days);
   const curStart = new Date(curEnd); curStart.setDate(curStart.getDate() - (days - 1));
-  const bucket = sumDailyRange(activeProduct, channel, curStart, curEnd);
+  const bucket = sumDailyRange(product, channel, curStart, curEnd);
   return { bucket, start: curStart, end: curEnd };
 }
+function channelRollingWindow(channel, days, offset) {
+  return channelRollingWindowFor(activeProduct, channel, days, offset);
+}
 // 롤링 일평균: combined는 자사몰 자체 일평균 + 네이버 자체 일평균 (항상 채널별 독립 계산 후 합산)
-function rollingAvg(channel, days, offset, key) {
+function rollingAvgFor(product, channel, days, offset, key) {
   if (channel === 'combined') {
-    const o = channelRollingWindow('own', days, offset);
-    const n = channelRollingWindow('naver', days, offset);
+    const o = channelRollingWindowFor(product, 'own', days, offset);
+    const n = channelRollingWindowFor(product, 'naver', days, offset);
     const oa = (o && o.bucket.days > 0) ? o.bucket[key] / o.bucket.days : null;
     const na = (n && n.bucket.days > 0) ? n.bucket[key] / n.bucket.days : null;
     if (oa === null && na === null) return null;
     return (oa || 0) + (na || 0);
   }
-  const w = channelRollingWindow(channel, days, offset);
+  const w = channelRollingWindowFor(product, channel, days, offset);
   if (!w || w.bucket.days === 0) return null;
   return w.bucket[key] / w.bucket.days;
+}
+function rollingAvg(channel, days, offset, key) {
+  return rollingAvgFor(activeProduct, channel, days, offset, key);
 }
 function rollingRate(channel, days, offset, numKey, denKey) {
   const num = rollingAvg(channel, days, offset, numKey);
@@ -1511,7 +1523,7 @@ function evaluateProductHealth(dExp, dConv, dRate) {
   const e = dExp.cls, c = dConv.cls, r = dRate.cls; // 'up' | 'down' | 'flat'
 
   if (c === 'flat' && r === 'flat') {
-    return { tier: 'neutral', icon: '⚪', label: '안정적', desc: '지난달과 큰 변화 없이 안정적으로 유지되고 있어요.' };
+    return { tier: 'neutral', icon: '⚪', label: '안정적', desc: '이전 기간과 큰 변화 없이 안정적으로 유지되고 있어요.' };
   }
   if (r === 'up' && c === 'up') {
     if (e === 'down') return { tier: 'excellent', icon: '🟢', label: '효율형 성장', desc: '노출은 줄었지만 전환율이 좋아져 전환수는 오히려 늘었어요. 가장 건강한 성장 형태예요.' };
@@ -1532,7 +1544,31 @@ function evaluateProductHealth(dExp, dConv, dRate) {
   if (r === 'flat' && c === 'down') return { tier: 'watch', icon: '🟠', label: '완만한 둔화', desc: '전환율은 큰 변화가 없지만 전환수는 줄었어요.' };
   if (c === 'flat' && r === 'up') return { tier: 'good', icon: '🔵', label: '효율 개선 중', desc: '전환수는 큰 변화가 없지만 전환율이 좋아지고 있어요.' };
   if (c === 'flat' && r === 'down') return { tier: 'watch', icon: '🟠', label: '효율 둔화', desc: '전환수는 큰 변화가 없지만 전환율이 떨어지고 있어요.' };
-  return { tier: 'neutral', icon: '⚪', label: '안정적', desc: '지난달과 큰 변화 없이 안정적으로 유지되고 있어요.' };
+  return { tier: 'neutral', icon: '⚪', label: '안정적', desc: '이전 기간과 큰 변화 없이 안정적으로 유지되고 있어요.' };
+}
+
+// 기간 선택(이번달 vs 지난달 / 최근 7일 vs 직전 7일 / 최근 14일 vs 직전 14일)에 따라
+// 제품별로 통합(자사몰+네이버) 일평균 노출수/전환수를 가져오는 공용 함수. 로직은 동일하고 기간만 다르다.
+function overviewPeriodValues(product) {
+  if (overviewPeriod === '7d' || overviewPeriod === '14d') {
+    const days = overviewPeriod === '7d' ? 7 : 14;
+    return {
+      curLabel: `최근 ${days}일`, prevLabel: `직전 ${days}일`,
+      curExp: rollingAvgFor(product, 'combined', days, 0, 'exposure'),
+      prevExp: rollingAvgFor(product, 'combined', days, 1, 'exposure'),
+      curConv: rollingAvgFor(product, 'combined', days, 0, 'conversion'),
+      prevConv: rollingAvgFor(product, 'combined', days, 1, 'conversion')
+    };
+  }
+  const curKey = monthKeyOf(new Date());
+  const prevKey = prevMonthKeyOf(curKey);
+  return {
+    curLabel: monthKeyLabel(curKey), prevLabel: monthKeyLabel(prevKey),
+    curExp: monthCombinedAvgForProduct(product, curKey, 'exposure'),
+    prevExp: monthCombinedAvgForProduct(product, prevKey, 'exposure'),
+    curConv: monthCombinedAvgForProduct(product, curKey, 'conversion'),
+    prevConv: monthCombinedAvgForProduct(product, prevKey, 'conversion')
+  };
 }
 
 function renderOverview() {
@@ -1540,20 +1576,18 @@ function renderOverview() {
   destroyOverviewCharts();
   if (STATE.products.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
 
-  const curKey = monthKeyOf(new Date());
-  const prevKey = prevMonthKeyOf(curKey);
-  const curLabel = monthKeyLabel(curKey), prevLabel = monthKeyLabel(prevKey);
-
-  box.innerHTML = `<p style="font-size:12px;color:var(--sub);margin:0 0 16px;">통합(자사몰+네이버) 일평균 기준 · ${prevLabel} 평균 → ${curLabel} 평균 비교</p>`;
+  box.innerHTML = `<p style="font-size:12px;color:var(--sub);margin:0 0 16px;" id="overviewSubtitle"></p>`;
   const grid = document.createElement('div');
   grid.className = 'overview-grid';
   box.appendChild(grid);
+  let subtitleSet = false;
 
   STATE.products.forEach((p, idx) => {
-    const curExp = monthCombinedAvgForProduct(p, curKey, 'exposure');
-    const prevExp = monthCombinedAvgForProduct(p, prevKey, 'exposure');
-    const curConv = monthCombinedAvgForProduct(p, curKey, 'conversion');
-    const prevConv = monthCombinedAvgForProduct(p, prevKey, 'conversion');
+    const { curLabel, prevLabel, curExp, prevExp, curConv, prevConv } = overviewPeriodValues(p);
+    if (!subtitleSet) {
+      document.getElementById('overviewSubtitle').textContent = `통합(자사몰+네이버) 일평균 기준 · ${prevLabel} 평균 → ${curLabel} 평균 비교`;
+      subtitleSet = true;
+    }
     const curRate = (curExp !== null && curExp > 0 && curConv !== null) ? curConv / curExp : null;
     const prevRate = (prevExp !== null && prevExp > 0 && prevConv !== null) ? prevConv / prevExp : null;
 
@@ -1616,6 +1650,15 @@ function renderAll() {
   renderTable();
   renderInsights();
 }
+
+document.getElementById('overviewPeriodToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#overviewPeriodToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  overviewPeriod = btn.dataset.period;
+  renderOverview();
+});
 
 /* ========================= 테마 (다크/라이트) ========================= */
 function applyTheme(theme) {
