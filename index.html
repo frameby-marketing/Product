@@ -103,7 +103,9 @@
   .overview-metric{text-align:center;}
   .overview-metric .metric-label{font-size:12.5px; color:var(--sub); margin-bottom:6px; font-weight:600;}
   .overview-metric .delta{margin-top:4px; font-size:13px; font-weight:700;}
-  .chart-box.small{height:130px;}
+  .overview-metric .big-delta{font-size:22px; font-weight:800; margin:2px 0 10px;}
+  .overview-metric .big-delta.up{color:var(--good);} .overview-metric .big-delta.down{color:var(--bad);} .overview-metric .big-delta.flat{color:var(--sub);}
+  .chart-box.small{height:160px;}
   details{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:26px;}
   details summary{cursor:pointer; font-weight:600; font-size:13.5px; color:var(--text);}
   details .content{margin-top:12px; font-size:13px; line-height:1.8; color:var(--sub);}
@@ -1506,9 +1508,10 @@ function renderOverview() {
     const curRate = (curExp !== null && curExp > 0 && curConv !== null) ? curConv / curExp : null;
     const prevRate = (prevExp !== null && prevExp > 0 && prevConv !== null) ? prevConv / prevExp : null;
 
-    const dExp = deltaOf(curExp, prevExp, false, prevLabel + ' 평균');
-    const dConv = deltaCount(curConv, prevConv, '건', prevLabel + ' 평균');
-    const dRate = deltaOf(curRate, prevRate, true, prevLabel);
+    // 증감을 "19.4% ▲" 형태로 크게, 라벨 바로 아래에 표시하고 그 아래에 막대그래프를 둔다.
+    const dExp = deltaBigPercent(curExp, prevExp);
+    const dConv = deltaBigCount(curConv, prevConv, '건');
+    const dRate = deltaBigPP(curRate, prevRate);
 
     const hasAny = curExp !== null || prevExp !== null;
     const block = document.createElement('div');
@@ -1518,18 +1521,18 @@ function renderOverview() {
       <div class="overview-metrics">
         <div class="overview-metric">
           <div class="metric-label">일평균 노출수</div>
+          <div class="big-delta ${dExp.cls}">${dExp.text}</div>
           <div class="chart-box small"><canvas id="ovExp${idx}"></canvas></div>
-          <div class="delta ${dExp.cls}">${dExp.text}</div>
         </div>
         <div class="overview-metric">
           <div class="metric-label">일평균 전환수</div>
+          <div class="big-delta ${dConv.cls}">${dConv.text}</div>
           <div class="chart-box small"><canvas id="ovConv${idx}"></canvas></div>
-          <div class="delta ${dConv.cls}">${dConv.text}</div>
         </div>
         <div class="overview-metric">
           <div class="metric-label">일평균 전환율</div>
+          <div class="big-delta ${dRate.cls}">${dRate.text}</div>
           <div class="chart-box small"><canvas id="ovRate${idx}"></canvas></div>
-          <div class="delta ${dRate.cls}">${dRate.text}</div>
         </div>
       </div>` : `<h3>${p}</h3><div class="empty">${curLabel}·${prevLabel} 데이터가 없습니다</div>`;
     grid.appendChild(block);
