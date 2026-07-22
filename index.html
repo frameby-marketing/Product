@@ -9,7 +9,7 @@
   :root{
     --bg:#0f1218; --card:#171b23; --text:#e5e7eb; --sub:#9aa3b2;
     --accent:#3b82f6; --accent2:#fb923c; --border:#262b35;
-    --good:#22c55e; --bad:#f87171;
+    --good:#22c55e; --bad:#f87171; --warn:#f59e0b;
     --table-head-bg:#1c2129; --hover-bg:#1b2029; --code-bg:#1c2129;
     --banner-demo-bg:rgba(251,146,60,0.12); --banner-demo-text:#fdba74; --banner-demo-border:rgba(251,146,60,0.35);
     --banner-live-bg:rgba(34,197,94,0.12); --banner-live-text:#86efac; --banner-live-border:rgba(34,197,94,0.35);
@@ -17,7 +17,7 @@
   [data-theme="light"]{
     --bg:#f5f6f8; --card:#ffffff; --text:#1c1e21; --sub:#6b7280;
     --accent:#2f6fed; --accent2:#f97316; --border:#e5e7eb;
-    --good:#16a34a; --bad:#dc2626;
+    --good:#16a34a; --bad:#dc2626; --warn:#b45309;
     --table-head-bg:#fafafa; --hover-bg:#fafbfc; --code-bg:#f1f5f9;
     --banner-demo-bg:#fff7ed; --banner-demo-text:#9a3412; --banner-demo-border:#fed7aa;
     --banner-live-bg:#ecfdf5; --banner-live-text:#065f46; --banner-live-border:#a7f3d0;
@@ -106,6 +106,19 @@
   .overview-metric .big-delta{font-size:22px; font-weight:800; margin:2px 0 10px;}
   .overview-metric .big-delta.up{color:var(--good);} .overview-metric .big-delta.down{color:var(--bad);} .overview-metric .big-delta.flat{color:var(--sub);}
   .chart-box.small{height:160px;}
+  .health-badge{border-radius:8px; padding:10px 14px; margin-bottom:14px;}
+  .health-badge .health-label{font-weight:800; font-size:14.5px; margin-right:6px;}
+  .health-badge .health-desc{font-size:12.5px; line-height:1.5; margin-top:3px; color:var(--text);}
+  .health-badge.tier-excellent{background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.35);}
+  .health-badge.tier-excellent .health-label{color:var(--good);}
+  .health-badge.tier-good{background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3);}
+  .health-badge.tier-good .health-label{color:var(--accent);}
+  .health-badge.tier-neutral{background:var(--table-head-bg); border:1px solid var(--border);}
+  .health-badge.tier-neutral .health-label{color:var(--sub);}
+  .health-badge.tier-watch{background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.4);}
+  .health-badge.tier-watch .health-label{color:var(--warn);}
+  .health-badge.tier-critical{background:rgba(248,113,113,0.14); border:1px solid rgba(248,113,113,0.4);}
+  .health-badge.tier-critical .health-label{color:var(--bad);}
   details{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:26px;}
   details summary{cursor:pointer; font-weight:600; font-size:13.5px; color:var(--text);}
   details .content{margin-top:12px; font-size:13px; line-height:1.8; color:var(--sub);}
@@ -1486,6 +1499,42 @@ function overviewMiniChart(canvasId, prevLabel, curLabel, prevVal, curVal, color
 
 // 제품 4개를 순서대로(시트에 나열된 순서) 나열, 각 제품마다 통합(자사몰+네이버) 일평균 노출수/전환수/전환율을
 // "이번달 vs 지난달"로만 비교한다 (오늘 날짜 기준 실제 달력 월 — 예: 지금이 7월이면 6월과 비교).
+// 노출수·전환수·전환율 세 지표의 증감 조합으로 "이 제품 지금 어떤 상태인가"를 한 줄로 평가한다.
+// 전환율(효율)과 전환수(결과)의 조합이 핵심이고, 노출수(물량)는 그 조합이 왜 그렇게 됐는지 설명해준다.
+//  - 전환율▲ + 전환수▲: 좋은 성장. 노출까지 늘었으면 "최고의 성장", 노출이 줄었는데도 이 결과면 더 건강한 "효율형 성장".
+//  - 전환율▼ + 전환수▼: 나쁜 하락. 노출까지 늘었는데 이 결과면 유입 품질에 문제가 생긴 "위험 신호"(가장 심각),
+//                        노출도 같이 줄었으면 전방위적인 "복합 하락", 노출은 그대로인데 이 결과면 "전환 효율 악화".
+//  - 전환율▼인데 전환수▲: 노출을 그만큼 더 늘려서 버틴 "양적 성장" — 효율 저하를 물량으로 상쇄하는 중이라 주의가 필요.
+//  - 전환율▲인데 전환수▼: 효율은 좋아졌지만 노출이 줄어 총량이 줄어든 "선택적 위축" — 노출만 회복되면 전환수도 회복될 가능성이 높음.
+//  - 전환수·전환율이 둘 다 거의 변화 없으면 "안정적".
+function evaluateProductHealth(dExp, dConv, dRate) {
+  const e = dExp.cls, c = dConv.cls, r = dRate.cls; // 'up' | 'down' | 'flat'
+
+  if (c === 'flat' && r === 'flat') {
+    return { tier: 'neutral', icon: '⚪', label: '안정적', desc: '지난달과 큰 변화 없이 안정적으로 유지되고 있어요.' };
+  }
+  if (r === 'up' && c === 'up') {
+    if (e === 'down') return { tier: 'excellent', icon: '🟢', label: '효율형 성장', desc: '노출은 줄었지만 전환율이 좋아져 전환수는 오히려 늘었어요. 가장 건강한 성장 형태예요.' };
+    return { tier: 'excellent', icon: '🟢', label: '최고의 성장', desc: '노출·전환·전환율이 함께 좋아지고 있어요. 지금 방식을 유지하세요.' };
+  }
+  if (r === 'down' && c === 'down') {
+    if (e === 'up') return { tier: 'critical', icon: '🔴', label: '위험 신호', desc: '노출은 늘었는데 전환율이 떨어지며 전환수까지 줄었어요. 유입 품질이나 랜딩페이지 점검이 시급해요.' };
+    if (e === 'down') return { tier: 'critical', icon: '🔴', label: '복합 하락', desc: '노출·전환·전환율이 모두 나빠지고 있어요. 원인 파악이 필요해요.' };
+    return { tier: 'watch', icon: '🟠', label: '전환 효율 악화', desc: '노출은 비슷한데 전환율이 떨어져 전환수가 줄었어요. 전환 단계를 점검하세요.' };
+  }
+  if (r === 'down' && c === 'up') {
+    return { tier: 'watch', icon: '🟠', label: '양적 성장', desc: '노출을 늘려 전환수는 늘었지만 전환율은 떨어지고 있어요. 물량으로 버티는 성장이라 효율 개선이 필요해요.' };
+  }
+  if (r === 'up' && c === 'down') {
+    return { tier: 'watch', icon: '🟠', label: '선택적 위축', desc: '전환율은 좋아졌지만 노출이 줄어 전환수는 감소했어요. 노출(예산/트래픽)만 회복되면 전환수도 다시 오를 가능성이 높아요.' };
+  }
+  if (r === 'flat' && c === 'up') return { tier: 'good', icon: '🔵', label: '완만한 성장', desc: '전환율은 큰 변화가 없지만 전환수는 늘었어요.' };
+  if (r === 'flat' && c === 'down') return { tier: 'watch', icon: '🟠', label: '완만한 둔화', desc: '전환율은 큰 변화가 없지만 전환수는 줄었어요.' };
+  if (c === 'flat' && r === 'up') return { tier: 'good', icon: '🔵', label: '효율 개선 중', desc: '전환수는 큰 변화가 없지만 전환율이 좋아지고 있어요.' };
+  if (c === 'flat' && r === 'down') return { tier: 'watch', icon: '🟠', label: '효율 둔화', desc: '전환수는 큰 변화가 없지만 전환율이 떨어지고 있어요.' };
+  return { tier: 'neutral', icon: '⚪', label: '안정적', desc: '지난달과 큰 변화 없이 안정적으로 유지되고 있어요.' };
+}
+
 function renderOverview() {
   const box = document.getElementById('overviewBox');
   destroyOverviewCharts();
@@ -1514,10 +1563,15 @@ function renderOverview() {
     const dRate = deltaBigPP(curRate, prevRate);
 
     const hasAny = curExp !== null || prevExp !== null;
+    const health = hasAny ? evaluateProductHealth(dExp, dConv, dRate) : null;
     const block = document.createElement('div');
     block.className = 'overview-product';
     block.innerHTML = hasAny ? `
       <h3>${p}</h3>
+      <div class="health-badge tier-${health.tier}">
+        <span class="health-icon">${health.icon}</span><span class="health-label">${health.label}</span>
+        <div class="health-desc">${health.desc}</div>
+      </div>
       <div class="overview-metrics">
         <div class="overview-metric">
           <div class="metric-label">일평균 노출수</div>
