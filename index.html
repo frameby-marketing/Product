@@ -33,13 +33,17 @@
   }
   header h1{margin:0 0 4px; font-size:22px;}
   header p{margin:0; color:#cbd5e1; font-size:13px;}
-  #themeToggle, #openSheetBtn{
+  #themeToggle, #openSheetBtn, #refreshBtn{
     padding:8px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.3);
     background:rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:13px; font-weight:600;
     white-space:nowrap; text-decoration:none; display:inline-block;
   }
-  #themeToggle:hover, #openSheetBtn:hover{background:rgba(255,255,255,0.18);}
+  #themeToggle:hover, #openSheetBtn:hover, #refreshBtn:hover{background:rgba(255,255,255,0.18);}
   #openSheetBtn.disabled{opacity:0.4; cursor:not-allowed; pointer-events:none;}
+  #refreshBtn:disabled{opacity:0.5; cursor:default;}
+  #refreshBtn .spin{display:inline-block;}
+  #refreshBtn.loading .spin{animation:spin 0.8s linear infinite;}
+  @keyframes spin{ to{ transform:rotate(360deg); } }
   .wrap{max-width:1180px; margin:0 auto; padding:20px 24px 60px;}
   .banner{
     padding:10px 16px; border-radius:8px; font-size:13px; margin-bottom:18px;
@@ -137,6 +141,7 @@
   </div>
   <div style="display:flex; gap:8px; align-items:center;">
     <a id="openSheetBtn" href="#" target="_blank" rel="noopener noreferrer">📊 스프레드시트 열기</a>
+    <button id="refreshBtn" title="데이터 새로고침"><span class="spin">⟳</span> 새로고침</button>
     <button id="themeToggle">☀ 라이트 모드</button>
   </div>
 </header>
@@ -1702,6 +1707,35 @@ document.getElementById('themeToggle').addEventListener('click', () => {
   applyTheme(cur === 'dark' ? 'light' : 'dark');
 });
 
+// 데이터를 (재)로드하고 화면을 그린다. keepTab이 true면 현재 보고 있던 탭을 유지하고(새로고침),
+// 아니면 전체 탭으로 초기화한다(최초 로딩).
+async function loadAndRender(keepTab) {
+  await loadData();
+  renderBanner();
+  renderDebug();
+  if (STATE.products.length > 0) {
+    if (!keepTab || (activeProduct !== OVERVIEW_KEY && !STATE.products.includes(activeProduct))) {
+      activeProduct = OVERVIEW_KEY;
+    }
+    renderAll();
+  } else {
+    document.getElementById('kpiGrid').innerHTML = '<div class="empty">파싱된 제품 데이터가 없습니다. 아래쪽의 "진단 정보"를 펼쳐서 원인을 확인하세요.</div>';
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('refreshBtn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.classList.add('loading');
+  try {
+    await loadAndRender(true);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  }
+});
+
 (async function init() {
   let savedTheme = 'dark';
   try { savedTheme = localStorage.getItem('dashboardTheme') || 'dark'; } catch (e) {}
@@ -1718,15 +1752,7 @@ document.getElementById('themeToggle').addEventListener('click', () => {
     sheetBtn.title = 'CONFIG.SHEET_ID를 설정하면 활성화됩니다';
   }
 
-  await loadData();
-  renderBanner();
-  renderDebug();
-  if (STATE.products.length > 0) {
-    activeProduct = OVERVIEW_KEY;
-    renderAll();
-  } else {
-    document.getElementById('kpiGrid').innerHTML = '<div class="empty">파싱된 제품 데이터가 없습니다. 아래쪽의 "진단 정보"를 펼쳐서 원인을 확인하세요.</div>';
-  }
+  await loadAndRender(false);
 })();
 </script>
 </body>
