@@ -132,7 +132,7 @@
 
 <header>
   <div>
-    <h1>제품별 주간 성과 대시보드</h1>
+    <h1>제품별 성과 대시보드</h1>
     <p>2026 자사몰 &amp; 네이버 · 노출/담김/전환 데이터 기반 주간 분석</p>
   </div>
   <div style="display:flex; gap:8px; align-items:center;">
@@ -1176,11 +1176,11 @@ function renderRollingComparison() {
     grid.appendChild(block);
 
     if (hasAny) {
-      let ch = miniBarChart(expId, [prevLabel, curLabel], [prevAvgExp, curAvgExp], '#3b82f6', v => numFmt(v));
+      let ch = miniBarChart(expId, [prevLabel, curLabel], [prevAvgExp, curAvgExp], dExp.cls, v => numFmt(v));
       if (ch) rollingCharts[expId] = ch;
-      ch = miniBarChart(convId, [prevLabel, curLabel], [prevAvgConv, curAvgConv], '#a78bfa', v => numFmt(v));
+      ch = miniBarChart(convId, [prevLabel, curLabel], [prevAvgConv, curAvgConv], dConv.cls, v => numFmt(v));
       if (ch) rollingCharts[convId] = ch;
-      ch = miniBarChart(rateId, [prevLabel, curLabel], [prevRate !== null ? prevRate * 100 : null, curRate !== null ? curRate * 100 : null], '#22c55e', v => v.toFixed(1) + '%');
+      ch = miniBarChart(rateId, [prevLabel, curLabel], [prevRate !== null ? prevRate * 100 : null, curRate !== null ? curRate * 100 : null], dRate.cls, v => v.toFixed(1) + '%');
       if (ch) rollingCharts[rateId] = ch;
     }
   });
@@ -1278,10 +1278,12 @@ function renderPeakComparison() {
 
   const block = document.createElement('div');
   block.className = 'overview-product';
+  items.forEach(it => { it.delta = peakCompareDelta(it.cur, it.peak.val, it.mode); });
+
   block.innerHTML = `<h3>피크 대비 현재 수준</h3>
     <div class="overview-metrics">
       ${items.map(it => {
-        const d = peakCompareDelta(it.cur, it.peak.val, it.mode);
+        const d = it.delta;
         return `<div class="overview-metric">
           <div class="metric-label">${it.label}</div>
           <div class="chart-box small"><canvas id="peak_${it.key}"></canvas></div>
@@ -1294,7 +1296,7 @@ function renderPeakComparison() {
   items.forEach(it => {
     const labels = [monthLabel(it.peak.month), monthLabel(curMonth)];
     const values = [it.peak.val * it.scale, it.cur !== null && it.cur !== undefined ? it.cur * it.scale : null];
-    const ch = miniBarChart(`peak_${it.key}`, labels, values, it.color, it.fmt);
+    const ch = miniBarChart(`peak_${it.key}`, labels, values, it.delta.cls, it.fmt);
     if (ch) peakCharts[`peak_${it.key}`] = ch;
   });
 }
@@ -1323,7 +1325,8 @@ function insightChannelBlock(name, channel, idx) {
   const ytdConv = totals.conversion / totals.days;
   const curExp = rollingAvg(channel, 7, 0, 'exposure');
   const curConv = rollingAvg(channel, 7, 0, 'conversion');
-  const color = channel === 'naver' ? '#fb923c' : '#3b82f6';
+  const expCls = deltaBigPercent(curExp, ytdExp).cls;
+  const convCls = deltaBigCount(curConv, ytdConv, '건').cls;
   const expCanvasId = `insExp_${idx}`;
   const convCanvasId = `insConv_${idx}`;
 
@@ -1340,8 +1343,8 @@ function insightChannelBlock(name, channel, idx) {
     </div>`;
   const html = `<div class="insight-block"><h3>${name}</h3>${rows}</div>`;
   const chartsSpec = [
-    { canvasId: expCanvasId, labels: ['26년 누적', '현재(최근7일)'], values: [ytdExp, curExp], color, fmt: v => numFmt(v) },
-    { canvasId: convCanvasId, labels: ['26년 누적', '현재(최근7일)'], values: [ytdConv, curConv], color, fmt: v => numFmt(v) }
+    { canvasId: expCanvasId, labels: ['26년 누적', '현재(최근7일)'], values: [ytdExp, curExp], cls: expCls, fmt: v => numFmt(v) },
+    { canvasId: convCanvasId, labels: ['26년 누적', '현재(최근7일)'], values: [ytdConv, curConv], cls: convCls, fmt: v => numFmt(v) }
   ];
   return { html, chartsSpec };
 }
@@ -1395,7 +1398,7 @@ function renderInsights() {
   [ownBlock, naverBlock].forEach(b => {
     if (!b) return;
     b.chartsSpec.forEach(spec => {
-      const ch = miniBarChart(spec.canvasId, spec.labels, spec.values, spec.color, spec.fmt);
+      const ch = miniBarChart(spec.canvasId, spec.labels, spec.values, spec.cls, spec.fmt);
       if (ch) insightCharts[spec.canvasId] = ch;
     });
   });
@@ -1483,20 +1486,27 @@ function destroyPeakCharts() {
 // 공용 미니 막대그래프 생성기: 2개(또는 N개) 값을 세로 막대로 비교. 여러 섹션(전체 탭, 인사이트,
 // 최근 N일 비교, 피크 대비)에서 재사용한다. 막대 위 숫자 라벨이 캔버스 상단에서 잘리지 않도록
 // 캔버스 자체에 위쪽 여백을 주고, y축 최댓값도 실제 값보다 넉넉히 띄운다.
-function miniBarChart(canvasId, labels, values, color, fmt) {
+// 이전 값 막대는 항상 회색, 현재 값 막대는 오른 경우 초록/내린 경우 빨강/변동 없으면 진한 회색으로 표시한다.
+// cls는 호출부에서 이미 계산해둔 증감 판정('up'|'down'|'flat')을 그대로 재사용한다(임계값 기준을 하나로 통일하기 위함).
+const MINIBAR_PREV_COLOR = '#9ca3af';
+const MINIBAR_FLAT_COLOR = '#52525b';
+const MINIBAR_UP_COLOR = '#22c55e';
+const MINIBAR_DOWN_COLOR = '#ef4444';
+function miniBarChart(canvasId, labels, values, cls, fmt) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return null;
   const colors = getThemeColors();
   const maxVal = Math.max(...values.map(v => v || 0), 0);
   const yMax = maxVal > 0 ? maxVal * 1.3 : undefined;
   const lastIdx = values.length - 1;
+  const curColor = cls === 'up' ? MINIBAR_UP_COLOR : cls === 'down' ? MINIBAR_DOWN_COLOR : MINIBAR_FLAT_COLOR;
   return new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
       datasets: [{
         data: values,
-        backgroundColor: values.map((_, i) => i === lastIdx ? color : color + '55'),
+        backgroundColor: values.map((_, i) => i === lastIdx ? curColor : MINIBAR_PREV_COLOR),
         borderRadius: 6, maxBarThickness: 56,
         _showLabels: true, _labelColor: colors.text, _labelFormat: fmt
       }]
@@ -1513,8 +1523,8 @@ function miniBarChart(canvasId, labels, values, color, fmt) {
   });
 }
 
-function overviewMiniChart(canvasId, prevLabel, curLabel, prevVal, curVal, color, fmt) {
-  const ch = miniBarChart(canvasId, [prevLabel, curLabel], [prevVal, curVal], color, fmt);
+function overviewMiniChart(canvasId, prevLabel, curLabel, prevVal, curVal, cls, fmt) {
+  const ch = miniBarChart(canvasId, [prevLabel, curLabel], [prevVal, curVal], cls, fmt);
   if (ch) overviewCharts[canvasId] = ch;
 }
 
@@ -1636,9 +1646,9 @@ function renderOverview() {
     grid.appendChild(block);
 
     if (hasAny) {
-      overviewMiniChart(`ovExp${idx}`, prevLabel, curLabel, prevExp, curExp, '#3b82f6', v => numFmt(v));
-      overviewMiniChart(`ovConv${idx}`, prevLabel, curLabel, prevConv, curConv, '#a78bfa', v => numFmt(v));
-      overviewMiniChart(`ovRate${idx}`, prevLabel, curLabel, prevRate !== null ? prevRate * 100 : null, curRate !== null ? curRate * 100 : null, '#22c55e', v => v.toFixed(1) + '%');
+      overviewMiniChart(`ovExp${idx}`, prevLabel, curLabel, prevExp, curExp, dExp.cls, v => numFmt(v));
+      overviewMiniChart(`ovConv${idx}`, prevLabel, curLabel, prevConv, curConv, dConv.cls, v => numFmt(v));
+      overviewMiniChart(`ovRate${idx}`, prevLabel, curLabel, prevRate !== null ? prevRate * 100 : null, curRate !== null ? curRate * 100 : null, dRate.cls, v => v.toFixed(1) + '%');
     }
   });
 }
