@@ -123,6 +123,12 @@
   .health-badge.tier-watch .health-label{color:var(--warn);}
   .health-badge.tier-critical{background:rgba(248,113,113,0.14); border:1px solid rgba(248,113,113,0.4);}
   .health-badge.tier-critical .health-label{color:var(--bad);}
+  .channel-comment{margin-top:14px; padding:10px 14px; border-radius:8px; font-size:12.5px; line-height:1.55; color:var(--text);}
+  .channel-comment .comment-label{font-weight:700; margin-right:6px; display:block; margin-bottom:2px;}
+  .channel-comment.similar{background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3);}
+  .channel-comment.similar .comment-label{color:var(--accent);}
+  .channel-comment.diff{background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.4);}
+  .channel-comment.diff .comment-label{color:var(--warn);}
   details{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:26px;}
   details summary{cursor:pointer; font-weight:600; font-size:13.5px; color:var(--text);}
   details .content{margin-top:12px; font-size:13px; line-height:1.8; color:var(--sub);}
@@ -906,7 +912,7 @@ function renderKPIs() {
     const rate = rollingRate('combined', 7, 0, 'conversion', 'exposure');
     const pRate = rollingRate('combined', 7, 1, 'conversion', 'exposure');
     addKpiCard(grid, '통합 일평균 노출수', deltaBigPercent(expAvg, pExpAvg), expAvg !== null ? numFmt(expAvg) : '-', periodAvg);
-    addKpiCard(grid, '통합 일평균 전환수', deltaBigCount(convAvg, pConvAvg, '건'), convAvg !== null ? numFmt(convAvg) + '건' : '-', periodAvg);
+    addKpiCard(grid, '통합 일평균 전환수', deltaBigPercent(convAvg, pConvAvg), convAvg !== null ? numFmt(convAvg) + '건' : '-', periodAvg);
     addKpiCard(grid, '통합 전환율', deltaBigPP(rate, pRate), pct(rate), periodRate);
   }
 
@@ -1150,7 +1156,7 @@ function renderRollingComparison() {
     const prevRate = prevFilled ? rollingRate(activeChannel, days, 1, 'conversion', 'exposure') : null;
 
     const dExp = deltaOf(curAvgExp, prevAvgExp, false, `직전 ${days}일`);
-    const dConv = deltaCount(curAvgConv, prevAvgConv, '건', `직전 ${days}일`);
+    const dConv = deltaOf(curAvgConv, prevAvgConv, false, `직전 ${days}일`);
     const dRate = deltaOf(curRate, prevRate, true, `직전 ${days}일`);
 
     const curLabel = `최근 ${days}일`, prevLabel = `직전 ${days}일`;
@@ -1270,7 +1276,7 @@ function renderPeakComparison() {
   const expPeak = findPeak(m => monthAvg(activeChannel, m, 'exposure'));
   if (expPeak) items.push({ key: 'exp', label: '일평균 노출수', peak: expPeak, cur: monthAvg(activeChannel, curMonth, 'exposure'), mode: 'ratio', color: '#3b82f6', fmt: v => numFmt(v), scale: 1 });
   const convPeak = findPeak(m => monthAvg(activeChannel, m, 'conversion'));
-  if (convPeak) items.push({ key: 'conv', label: '일평균 전환수', peak: convPeak, cur: monthAvg(activeChannel, curMonth, 'conversion'), mode: 'diff', color: '#a78bfa', fmt: v => numFmt(v), scale: 1 });
+  if (convPeak) items.push({ key: 'conv', label: '일평균 전환수', peak: convPeak, cur: monthAvg(activeChannel, curMonth, 'conversion'), mode: 'ratio', color: '#a78bfa', fmt: v => numFmt(v), scale: 1 });
   const ratePeak = findPeak(m => monthConvRate(activeChannel, m));
   if (ratePeak) items.push({ key: 'rate', label: '전환율', peak: ratePeak, cur: monthConvRate(activeChannel, curMonth), mode: 'pp', color: '#22c55e', fmt: v => v.toFixed(1) + '%', scale: 100 });
 
@@ -1330,8 +1336,10 @@ function insightChannelBlock(name, channel, idx) {
   const ytdConv = totals.conversion / totals.days;
   const curExp = rollingAvg(channel, 7, 0, 'exposure');
   const curConv = rollingAvg(channel, 7, 0, 'conversion');
-  const expCls = deltaBigPercent(curExp, ytdExp).cls;
-  const convCls = deltaBigCount(curConv, ytdConv, '건').cls;
+  const dExp = deltaBigPercent(curExp, ytdExp);
+  const dConv = deltaBigPercent(curConv, ytdConv);
+  const expCls = dExp.cls;
+  const convCls = dConv.cls;
   const expCanvasId = `insExp_${idx}`;
   const convCanvasId = `insConv_${idx}`;
 
@@ -1339,10 +1347,12 @@ function insightChannelBlock(name, channel, idx) {
     <div class="overview-metrics">
       <div class="overview-metric">
         <div class="metric-label">일평균 노출수 (26년 누적 vs 현재)</div>
+        <div class="big-delta ${dExp.cls}">${dExp.text}</div>
         <div class="chart-box small"><canvas id="${expCanvasId}"></canvas></div>
       </div>
       <div class="overview-metric">
         <div class="metric-label">일평균 전환수 (26년 누적 vs 현재)</div>
+        <div class="big-delta ${dConv.cls}">${dConv.text}</div>
         <div class="chart-box small"><canvas id="${convCanvasId}"></canvas></div>
       </div>
     </div>`;
@@ -1573,26 +1583,65 @@ function evaluateProductHealth(dExp, dConv, dRate) {
 
 // 기간 선택(이번달 vs 지난달 / 최근 7일 vs 직전 7일 / 최근 14일 vs 직전 14일) x 채널 선택(통합/자사몰/네이버)에
 // 따라 제품별 일평균 노출수/전환수를 가져오는 공용 함수. 로직은 동일하고 기간·채널만 다르다.
-function overviewPeriodValues(product) {
+// channel을 명시하지 않으면 현재 선택된 overviewChannel을 사용한다(자사몰/네이버 개별 비교 시 명시적으로 넘겨줌).
+function overviewPeriodValues(product, channel) {
+  const ch = channel || overviewChannel;
   if (overviewPeriod === '7d' || overviewPeriod === '14d') {
     const days = overviewPeriod === '7d' ? 7 : 14;
     return {
       curLabel: `최근 ${days}일`, prevLabel: `직전 ${days}일`,
-      curExp: rollingAvgFor(product, overviewChannel, days, 0, 'exposure'),
-      prevExp: rollingAvgFor(product, overviewChannel, days, 1, 'exposure'),
-      curConv: rollingAvgFor(product, overviewChannel, days, 0, 'conversion'),
-      prevConv: rollingAvgFor(product, overviewChannel, days, 1, 'conversion')
+      curExp: rollingAvgFor(product, ch, days, 0, 'exposure'),
+      prevExp: rollingAvgFor(product, ch, days, 1, 'exposure'),
+      curConv: rollingAvgFor(product, ch, days, 0, 'conversion'),
+      prevConv: rollingAvgFor(product, ch, days, 1, 'conversion')
     };
   }
   const curKey = monthKeyOf(new Date());
   const prevKey = prevMonthKeyOf(curKey);
   return {
     curLabel: monthKeyLabel(curKey), prevLabel: monthKeyLabel(prevKey),
-    curExp: monthAvgForProduct(product, overviewChannel, curKey, 'exposure'),
-    prevExp: monthAvgForProduct(product, overviewChannel, prevKey, 'exposure'),
-    curConv: monthAvgForProduct(product, overviewChannel, curKey, 'conversion'),
-    prevConv: monthAvgForProduct(product, overviewChannel, prevKey, 'conversion')
+    curExp: monthAvgForProduct(product, ch, curKey, 'exposure'),
+    prevExp: monthAvgForProduct(product, ch, prevKey, 'exposure'),
+    curConv: monthAvgForProduct(product, ch, curKey, 'conversion'),
+    prevConv: monthAvgForProduct(product, ch, prevKey, 'conversion')
   };
+}
+
+// 통합(자사몰+네이버) 뷰에서, 두 채널이 각각 어떻게 움직이고 있는지를 비교해 "유사/상이"를 짧게 서술한다.
+// 노출수/전환수/전환율 세 지표 각각의 증감 방향(오름/내림/보합)이 두 채널 간에 몇 개나 일치하는지로 판단한다.
+function channelSimilarityComment(product) {
+  const own = overviewPeriodValues(product, 'own');
+  const naver = overviewPeriodValues(product, 'naver');
+  const ownHasData = own.curExp !== null || own.prevExp !== null;
+  const naverHasData = naver.curExp !== null || naver.prevExp !== null;
+  if (!ownHasData || !naverHasData) {
+    return { cls: 'diff', text: '한쪽 채널의 데이터가 없어 자사몰-네이버 비교가 어려워요.' };
+  }
+
+  const ownRate = (own.curExp && own.curExp > 0 && own.curConv !== null) ? own.curConv / own.curExp : null;
+  const ownPrevRate = (own.prevExp && own.prevExp > 0 && own.prevConv !== null) ? own.prevConv / own.prevExp : null;
+  const naverRate = (naver.curExp && naver.curExp > 0 && naver.curConv !== null) ? naver.curConv / naver.curExp : null;
+  const naverPrevRate = (naver.prevExp && naver.prevExp > 0 && naver.prevConv !== null) ? naver.prevConv / naver.prevExp : null;
+
+  const dExpOwn = deltaBigPercent(own.curExp, own.prevExp);
+  const dExpNaver = deltaBigPercent(naver.curExp, naver.prevExp);
+  const dConvOwn = deltaBigPercent(own.curConv, own.prevConv);
+  const dConvNaver = deltaBigPercent(naver.curConv, naver.prevConv);
+  const dRateOwn = deltaBigPP(ownRate, ownPrevRate);
+  const dRateNaver = deltaBigPP(naverRate, naverPrevRate);
+
+  const metricNames = ['노출수', '전환수', '전환율'];
+  const matches = [dExpOwn.cls === dExpNaver.cls, dConvOwn.cls === dConvNaver.cls, dRateOwn.cls === dRateNaver.cls];
+  const matchCount = matches.filter(Boolean).length;
+  const diffMetrics = metricNames.filter((_, i) => !matches[i]);
+
+  if (matchCount === 3) {
+    return { cls: 'similar', text: '자사몰과 네이버 모두 노출수·전환수·전환율이 비슷한 방향으로 움직이고 있어, 두 채널의 흐름이 유사해요.' };
+  }
+  if (matchCount === 2) {
+    return { cls: 'similar', text: `자사몰과 네이버는 대체로 비슷하게 움직이고 있지만, ${diffMetrics[0]}에서는 방향이 갈리고 있어요.` };
+  }
+  return { cls: 'diff', text: `자사몰과 네이버가 ${diffMetrics.join(', ')} 흐름에서 서로 다르게 움직이고 있어, 채널 간 차이가 있어요.` };
 }
 
 function renderOverview() {
@@ -1618,11 +1667,13 @@ function renderOverview() {
 
     // 증감을 "19.4% ▲" 형태로 크게, 라벨 바로 아래에 표시하고 그 아래에 막대그래프를 둔다.
     const dExp = deltaBigPercent(curExp, prevExp);
-    const dConv = deltaBigCount(curConv, prevConv, '건');
+    const dConv = deltaBigPercent(curConv, prevConv);
     const dRate = deltaBigPP(curRate, prevRate);
 
     const hasAny = curExp !== null || prevExp !== null;
     const health = hasAny ? evaluateProductHealth(dExp, dConv, dRate) : null;
+    // 통합(자사몰+네이버) 뷰일 때만 두 채널이 유사하게 움직이는지 비교 코멘트를 보여준다.
+    const comment = (hasAny && overviewChannel === 'combined') ? channelSimilarityComment(p) : null;
     const block = document.createElement('div');
     block.className = 'overview-product';
     block.innerHTML = hasAny ? `
@@ -1647,7 +1698,8 @@ function renderOverview() {
           <div class="big-delta ${dRate.cls}">${dRate.text}</div>
           <div class="chart-box small"><canvas id="ovRate${idx}"></canvas></div>
         </div>
-      </div>` : `<h3>${p}</h3><div class="empty">${curLabel}·${prevLabel} 데이터가 없습니다</div>`;
+      </div>
+      ${comment ? `<div class="channel-comment ${comment.cls}"><span class="comment-label">💬 자사몰 vs 네이버</span>${comment.text}</div>` : ''}` : `<h3>${p}</h3><div class="empty">${curLabel}·${prevLabel} 데이터가 없습니다</div>`;
     grid.appendChild(block);
 
     if (hasAny) {
