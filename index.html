@@ -123,12 +123,8 @@
   .health-badge.tier-watch .health-label{color:var(--warn);}
   .health-badge.tier-critical{background:rgba(248,113,113,0.14); border:1px solid rgba(248,113,113,0.4);}
   .health-badge.tier-critical .health-label{color:var(--bad);}
-  .channel-comment{margin-top:14px; padding:10px 14px; border-radius:8px; font-size:12.5px; line-height:1.55; color:var(--text);}
-  .channel-comment .comment-label{font-weight:700; margin-right:6px; display:block; margin-bottom:2px;}
-  .channel-comment.similar{background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3);}
-  .channel-comment.similar .comment-label{color:var(--accent);}
-  .channel-comment.diff{background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.4);}
-  .channel-comment.diff .comment-label{color:var(--warn);}
+  .channel-comment{margin-top:14px; padding:10px 14px; border-radius:8px; font-size:12.5px; line-height:1.55; color:var(--text); background:var(--table-head-bg); border:1px solid var(--border);}
+  .channel-comment .comment-label{font-weight:700; margin-right:6px; display:block; margin-bottom:2px; color:var(--sub);}
   details{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:26px;}
   details summary{cursor:pointer; font-weight:600; font-size:13.5px; color:var(--text);}
   details .content{margin-top:12px; font-size:13px; line-height:1.8; color:var(--sub);}
@@ -1631,17 +1627,34 @@ function channelSimilarityComment(product) {
   const dRateNaver = deltaBigPP(naverRate, naverPrevRate);
 
   const metricNames = ['노출수', '전환수', '전환율'];
+  const deltaPairs = { '노출수': [dExpOwn, dExpNaver], '전환수': [dConvOwn, dConvNaver], '전환율': [dRateOwn, dRateNaver] };
   const matches = [dExpOwn.cls === dExpNaver.cls, dConvOwn.cls === dConvNaver.cls, dRateOwn.cls === dRateNaver.cls];
   const matchCount = matches.filter(Boolean).length;
   const diffMetrics = metricNames.filter((_, i) => !matches[i]);
 
+  // 한글 받침 유무에 따라 "은/는" 조사를 골라준다 (예: "노출수는", "전환율은").
+  function topicParticle(word) {
+    const code = word.charCodeAt(word.length - 1);
+    if (code < 0xAC00 || code > 0xD7A3) return '는';
+    return (code - 0xAC00) % 28 === 0 ? '는' : '은';
+  }
+
+  // 지표 하나의 채널 간 차이를 "노출수는 자사몰 19.4% ▲, 네이버 12.0% ▼로 반대 방향이에요" 처럼 구체적으로 서술한다.
+  function describeMetricDiff(metricName, dOwn, dNaver) {
+    const directional = c => c === 'up' || c === 'down';
+    const relation = (directional(dOwn.cls) && directional(dNaver.cls) && dOwn.cls !== dNaver.cls)
+      ? '반대 방향' : '서로 다른 흐름';
+    return `${metricName}${topicParticle(metricName)} 자사몰 ${dOwn.text}, 네이버 ${dNaver.text}로 ${relation}이에요.`;
+  }
+
   if (matchCount === 3) {
     return { cls: 'similar', text: '자사몰과 네이버 모두 노출수·전환수·전환율이 비슷한 방향으로 움직이고 있어, 두 채널의 흐름이 유사해요.' };
   }
+  const details = diffMetrics.map(m => describeMetricDiff(m, deltaPairs[m][0], deltaPairs[m][1])).join(' ');
   if (matchCount === 2) {
-    return { cls: 'similar', text: `자사몰과 네이버는 대체로 비슷하게 움직이고 있지만, ${diffMetrics[0]}에서는 방향이 갈리고 있어요.` };
+    return { cls: 'similar', text: `자사몰과 네이버는 대체로 비슷하게 움직이고 있지만, ${details}` };
   }
-  return { cls: 'diff', text: `자사몰과 네이버가 ${diffMetrics.join(', ')} 흐름에서 서로 다르게 움직이고 있어, 채널 간 차이가 있어요.` };
+  return { cls: 'diff', text: `자사몰과 네이버가 서로 다르게 움직이고 있어요. ${details}` };
 }
 
 function renderOverview() {
