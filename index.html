@@ -209,6 +209,18 @@
     </div>
 
     <div class="card">
+      <div class="card-header-row">
+        <h2 id="dailyExposureTitle">최근 30일 일별 노출량 (통합)</h2>
+        <div class="channel-toggle compact" id="dailyExposureChannelToggle">
+          <button data-channel="combined" class="active">자사몰+네이버 합산</button>
+          <button data-channel="own">자사몰</button>
+          <button data-channel="naver">네이버</button>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chartDailyExposure"></canvas></div>
+    </div>
+
+    <div class="card">
       <h2>최근 7일 · 14일 · 30일 비교 (직전 동일 기간 대비)</h2>
       <div id="rollingBox"></div>
     </div>
@@ -628,9 +640,10 @@ let charts = {};
 let overviewCharts = {};
 let overviewPeriod = 'month'; // 'month' | '7d' | '14d'
 let overviewChannel = 'combined'; // 'combined' | 'own' | 'naver'
-// 개별 제품 탭의 "최근 30일 일별 판매량/전환율" 카드는 각각 독립적으로 통합/자사몰/네이버를 전환할 수 있다.
+// 개별 제품 탭의 "최근 30일 일별 판매량/전환율/노출량" 카드는 각각 독립적으로 통합/자사몰/네이버를 전환할 수 있다.
 let dailySalesChannel = 'combined';
 let dailyRateChannel = 'combined';
+let dailyExposureChannel = 'combined';
 let insightCharts = {};
 let rollingCharts = {};
 let peakCharts = {};
@@ -1140,6 +1153,33 @@ function renderDailyRateChart() {
     type: 'line',
     data: { labels, datasets },
     options: chartOptions(colors, true)
+  });
+}
+
+// 개별 제품 탭 전용: 최근 30일 일별 노출량을 세로 막대그래프로 표시. 통합/자사몰/네이버 탭으로 전환 가능.
+function renderDailyExposureChart() {
+  destroyChart('dailyExposure');
+  const canvas = document.getElementById('chartDailyExposure');
+  if (!canvas) return;
+  const colors = getThemeColors();
+  const channelLabel = dailyExposureChannel === 'own' ? '자사몰' : dailyExposureChannel === 'naver' ? '네이버' : '통합';
+  document.getElementById('dailyExposureTitle').textContent = `최근 30일 일별 노출량 (${channelLabel})`;
+  const series = buildDailySalesSeries(activeProduct, 30, dailyExposureChannel);
+  const labels = series.map(r => fmtMD(r.date));
+  const values = series.map(r => r.exposure);
+  const validValues = values.filter(v => v !== null && v !== undefined);
+  const avg = validValues.length ? validValues.reduce((a, b) => a + b, 0) / validValues.length : null;
+  const datasets = [{
+    label: '일별 노출량',
+    data: values,
+    backgroundColor: '#f59e0b', borderRadius: 4, maxBarThickness: 26,
+    _showLabels: true, _labelColor: colors.text, _labelFont: '9px sans-serif', _labelFormat: v => numFmt(v)
+  }];
+  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${numFmt(avg)})`, labels.length, v => numFmt(v)));
+  charts.dailyExposure = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: chartOptions(colors, false)
   });
 }
 
@@ -1878,6 +1918,7 @@ function renderAll() {
   renderCharts();
   renderDailySalesChart();
   renderDailyRateChart();
+  renderDailyExposureChart();
   renderRollingComparison();
   renderMonthlyComparison();
   renderPeakComparison();
@@ -1919,6 +1960,15 @@ document.getElementById('dailyRateChannelToggle').addEventListener('click', (e) 
   btn.classList.add('active');
   dailyRateChannel = btn.dataset.channel;
   renderDailyRateChart();
+});
+
+document.getElementById('dailyExposureChannelToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#dailyExposureChannelToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  dailyExposureChannel = btn.dataset.channel;
+  renderDailyExposureChart();
 });
 
 /* ========================= 테마 (다크/라이트) ========================= */
