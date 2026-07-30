@@ -185,6 +185,11 @@
     </div>
 
     <div class="card">
+      <h2>최근 30일 일별 전환율 (자사몰+네이버 합산)</h2>
+      <div class="chart-box"><canvas id="chartDailyRate"></canvas></div>
+    </div>
+
+    <div class="card">
       <h2>최근 7일 · 14일 · 30일 비교 (직전 동일 기간 대비)</h2>
       <div id="rollingBox"></div>
     </div>
@@ -1009,7 +1014,7 @@ function isWeekComplete(wi) {
 // 완성된 주만 남긴 목록 (보통 진행 중인 마지막 주 하나만 제외됨 → 자연히 "전주차까지만" 보여짐)
 function completeWeeks() { return STATE.weeks.filter(isWeekComplete); }
 
-// 자사몰+네이버 합산 일별 판매량(전환수) 시계열. 두 채널의 날짜별 원자료를 날짜 기준으로 병합해
+// 자사몰+네이버 합산 일별 노출수/전환수 시계열. 두 채널의 날짜별 원자료를 날짜 기준으로 병합해
 // 하나의 타임라인으로 만든 뒤(채널마다 데이터 입력일이 달라도 날짜별로 정확히 합산됨), 최근 N일만 잘라 반환한다.
 function buildDailySalesSeries(product, days) {
   const own = STATE.daily[product]?.own || [];
@@ -1018,7 +1023,8 @@ function buildDailySalesSeries(product, days) {
   function keyOf(d) { return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
   [...own, ...naver].forEach(r => {
     const k = keyOf(r.date);
-    const cur = map.get(k) || { date: r.date, conversion: 0 };
+    const cur = map.get(k) || { date: r.date, exposure: 0, conversion: 0 };
+    cur.exposure += r.exposure || 0;
     cur.conversion += r.conversion || 0;
     map.set(k, cur);
   });
@@ -1047,6 +1053,31 @@ function renderDailySalesChart() {
       }]
     },
     options: chartOptions(colors, false)
+  });
+}
+
+// 개별 제품 탭 전용: 최근 30일 일별 전환율(전환수÷노출수, 자사몰+네이버 합산 고정)을 세로 막대그래프로 표시.
+function renderDailyRateChart() {
+  destroyChart('dailyRate');
+  const canvas = document.getElementById('chartDailyRate');
+  if (!canvas) return;
+  const colors = getThemeColors();
+  const series = buildDailySalesSeries(activeProduct, 30);
+  const labels = series.map(r => fmtMD(r.date));
+  const values = series.map(r => r.exposure > 0 ? (r.conversion / r.exposure) * 100 : null);
+  charts.dailyRate = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: '일별 전환율',
+        data: values,
+        borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.25,
+        _showLabels: true, _labelColor: '#3b82f6', _labelFont: '10px sans-serif', _labelOffset: 8,
+        _labelFormat: v => v.toFixed(1) + '%'
+      }]
+    },
+    options: chartOptions(colors, true)
   });
 }
 
@@ -1784,6 +1815,7 @@ function renderAll() {
   renderKPIs();
   renderCharts();
   renderDailySalesChart();
+  renderDailyRateChart();
   renderRollingComparison();
   renderMonthlyComparison();
   renderPeakComparison();
@@ -1870,7 +1902,5 @@ document.getElementById('refreshBtn').addEventListener('click', async () => {
   await loadAndRender(false);
 })();
 </script>
-</body>
-</html>
 </body>
 </html>
