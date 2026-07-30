@@ -980,6 +980,24 @@ const dataLabelPlugin = {
       if (!dataset._showLabels) return;
       const meta = chart.getDatasetMeta(i);
       if (meta.hidden) return;
+      // 평균선처럼 모든 값이 동일한 데이터셋은 지점마다 라벨을 반복해서 찍지 않고,
+      // 가장 오른쪽(마지막) 지점 하나에만 값을 표시한다.
+      if (dataset._labelLastOnly) {
+        for (let idx = meta.data.length - 1; idx >= 0; idx--) {
+          const val = dataset.data[idx];
+          const point = meta.data[idx];
+          if (val === null || val === undefined || !point) continue;
+          const text = dataset._labelFormat ? dataset._labelFormat(val) : String(val);
+          ctx.save();
+          ctx.fillStyle = dataset._labelColor || '#94a3b8';
+          ctx.font = dataset._labelFont || '11px sans-serif';
+          ctx.textAlign = dataset._labelAlign || 'right';
+          ctx.fillText(text, point.x, point.y - (dataset._labelOffset || 6));
+          ctx.restore();
+          break;
+        }
+        return;
+      }
       meta.data.forEach((point, idx) => {
         const val = dataset.data[idx];
         if (val === null || val === undefined || !point) return;
@@ -1058,11 +1076,14 @@ function buildDailySalesSeries(product, days, channel) {
 }
 
 // 흰색 점선 평균선 데이터셋 (막대/꺾은선 차트 위에 겹쳐 그리는 용도. 기존 avgLineDataset과 달리 색이 항상 흰색으로 고정).
-function whiteAvgLineDataset(value, label, n) {
+// 값이 전 구간 동일하므로 라벨은 가장 오른쪽(마지막) 지점 위에만 한 번 표시한다 (fmt로 판매량은 숫자, 전환율은 %로 포맷).
+function whiteAvgLineDataset(value, label, n, fmt) {
   return {
     type: 'line', label, data: new Array(n).fill(value),
     borderColor: '#ffffff', backgroundColor: '#ffffff',
-    borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0, fill: false
+    borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0, fill: false,
+    _showLabels: true, _labelLastOnly: true, _labelColor: '#ffffff', _labelFont: '11px sans-serif',
+    _labelAlign: 'right', _labelOffset: 8, _labelFormat: fmt
   };
 }
 
@@ -1085,7 +1106,7 @@ function renderDailySalesChart() {
     backgroundColor: '#22c55e', borderRadius: 4, maxBarThickness: 26,
     _showLabels: true, _labelColor: colors.text, _labelFont: '9px sans-serif', _labelFormat: v => numFmt(v)
   }];
-  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${numFmt(avg)}건)`, labels.length));
+  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${numFmt(avg)}건)`, labels.length, v => numFmt(v)));
   charts.dailySales = new Chart(canvas, {
     type: 'bar',
     data: { labels, datasets },
@@ -1114,7 +1135,7 @@ function renderDailyRateChart() {
     _showLabels: true, _labelColor: '#3b82f6', _labelFont: '10px sans-serif', _labelOffset: 8,
     _labelFormat: v => v.toFixed(1) + '%'
   }];
-  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${avg.toFixed(1)}%)`, labels.length));
+  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${avg.toFixed(1)}%)`, labels.length, v => v.toFixed(1) + '%'));
   charts.dailyRate = new Chart(canvas, {
     type: 'line',
     data: { labels, datasets },
