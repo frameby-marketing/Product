@@ -67,6 +67,10 @@
     cursor:pointer; font-size:12.5px; color:var(--sub);
   }
   .channel-toggle button.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .card-header-row{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap;}
+  .card-header-row h2{margin:0;}
+  .channel-toggle.compact{margin-bottom:0;}
+  .channel-toggle.compact button{padding:4px 11px; font-size:11.5px;}
   .kpi-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:20px;}
   .kpi{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px;}
   .kpi .label{font-size:12px; color:var(--sub); margin-bottom:6px;}
@@ -181,12 +185,26 @@
     </div>
 
     <div class="card">
-      <h2>최근 30일 일별 판매량 (자사몰+네이버 합산)</h2>
+      <div class="card-header-row">
+        <h2 id="dailySalesTitle">최근 30일 일별 판매량 (통합)</h2>
+        <div class="channel-toggle compact" id="dailySalesChannelToggle">
+          <button data-channel="combined" class="active">자사몰+네이버 합산</button>
+          <button data-channel="own">자사몰</button>
+          <button data-channel="naver">네이버</button>
+        </div>
+      </div>
       <div class="chart-box"><canvas id="chartDailySales"></canvas></div>
     </div>
 
     <div class="card">
-      <h2>최근 30일 일별 전환율 (자사몰+네이버 합산)</h2>
+      <div class="card-header-row">
+        <h2 id="dailyRateTitle">최근 30일 일별 전환율 (통합)</h2>
+        <div class="channel-toggle compact" id="dailyRateChannelToggle">
+          <button data-channel="combined" class="active">자사몰+네이버 합산</button>
+          <button data-channel="own">자사몰</button>
+          <button data-channel="naver">네이버</button>
+        </div>
+      </div>
       <div class="chart-box"><canvas id="chartDailyRate"></canvas></div>
     </div>
 
@@ -610,6 +628,9 @@ let charts = {};
 let overviewCharts = {};
 let overviewPeriod = 'month'; // 'month' | '7d' | '14d'
 let overviewChannel = 'combined'; // 'combined' | 'own' | 'naver'
+// 개별 제품 탭의 "최근 30일 일별 판매량/전환율" 카드는 각각 독립적으로 통합/자사몰/네이버를 전환할 수 있다.
+let dailySalesChannel = 'combined';
+let dailyRateChannel = 'combined';
 let insightCharts = {};
 let rollingCharts = {};
 let peakCharts = {};
@@ -1015,14 +1036,17 @@ function isWeekComplete(wi) {
 // 완성된 주만 남긴 목록 (보통 진행 중인 마지막 주 하나만 제외됨 → 자연히 "전주차까지만" 보여짐)
 function completeWeeks() { return STATE.weeks.filter(isWeekComplete); }
 
-// 자사몰+네이버 합산 일별 노출수/전환수 시계열. 두 채널의 날짜별 원자료를 날짜 기준으로 병합해
-// 하나의 타임라인으로 만든 뒤(채널마다 데이터 입력일이 달라도 날짜별로 정확히 합산됨), 최근 N일만 잘라 반환한다.
-function buildDailySalesSeries(product, days) {
+// 일별 노출수/전환수 시계열. channel이 'combined'면 자사몰+네이버 두 채널의 날짜별 원자료를 날짜 기준으로
+// 병합해(채널마다 데이터 입력일이 달라도 날짜별로 정확히 합산됨) 하나의 타임라인으로 만들고,
+// 'own'/'naver'면 해당 채널 원자료만 사용한다. 최근 N일만 잘라 반환한다.
+function buildDailySalesSeries(product, days, channel) {
+  channel = channel || 'combined';
   const own = STATE.daily[product]?.own || [];
   const naver = STATE.daily[product]?.naver || [];
+  const source = channel === 'own' ? own : channel === 'naver' ? naver : [...own, ...naver];
   const map = new Map();
   function keyOf(d) { return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
-  [...own, ...naver].forEach(r => {
+  source.forEach(r => {
     const k = keyOf(r.date);
     const cur = map.get(k) || { date: r.date, exposure: 0, conversion: 0 };
     cur.exposure += r.exposure || 0;
@@ -1042,13 +1066,15 @@ function whiteAvgLineDataset(value, label, n) {
   };
 }
 
-// 개별 제품 탭 전용: 최근 30일 일별 판매량(전환수, 자사몰+네이버 합산 고정)을 세로 막대그래프로 표시.
+// 개별 제품 탭 전용: 최근 30일 일별 판매량(전환수)을 세로 막대그래프로 표시. 통합/자사몰/네이버 탭으로 전환 가능.
 function renderDailySalesChart() {
   destroyChart('dailySales');
   const canvas = document.getElementById('chartDailySales');
   if (!canvas) return;
   const colors = getThemeColors();
-  const series = buildDailySalesSeries(activeProduct, 30);
+  const channelLabel = dailySalesChannel === 'own' ? '자사몰' : dailySalesChannel === 'naver' ? '네이버' : '통합';
+  document.getElementById('dailySalesTitle').textContent = `최근 30일 일별 판매량 (${channelLabel})`;
+  const series = buildDailySalesSeries(activeProduct, 30, dailySalesChannel);
   const labels = series.map(r => fmtMD(r.date));
   const values = series.map(r => r.conversion);
   const validValues = values.filter(v => v !== null && v !== undefined);
@@ -1067,13 +1093,15 @@ function renderDailySalesChart() {
   });
 }
 
-// 개별 제품 탭 전용: 최근 30일 일별 전환율(전환수÷노출수, 자사몰+네이버 합산 고정)을 꺾은선 그래프로 표시.
+// 개별 제품 탭 전용: 최근 30일 일별 전환율(전환수÷노출수)을 꺾은선 그래프로 표시. 통합/자사몰/네이버 탭으로 전환 가능.
 function renderDailyRateChart() {
   destroyChart('dailyRate');
   const canvas = document.getElementById('chartDailyRate');
   if (!canvas) return;
   const colors = getThemeColors();
-  const series = buildDailySalesSeries(activeProduct, 30);
+  const channelLabel = dailyRateChannel === 'own' ? '자사몰' : dailyRateChannel === 'naver' ? '네이버' : '통합';
+  document.getElementById('dailyRateTitle').textContent = `최근 30일 일별 전환율 (${channelLabel})`;
+  const series = buildDailySalesSeries(activeProduct, 30, dailyRateChannel);
   const labels = series.map(r => fmtMD(r.date));
   const values = series.map(r => r.exposure > 0 ? (r.conversion / r.exposure) * 100 : null);
   const totalExp = series.reduce((a, r) => a + (r.exposure || 0), 0);
@@ -1852,6 +1880,24 @@ document.getElementById('overviewChannelToggle').addEventListener('click', (e) =
   btn.classList.add('active');
   overviewChannel = btn.dataset.channel;
   renderOverview();
+});
+
+document.getElementById('dailySalesChannelToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#dailySalesChannelToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  dailySalesChannel = btn.dataset.channel;
+  renderDailySalesChart();
+});
+
+document.getElementById('dailyRateChannelToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#dailyRateChannelToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  dailyRateChannel = btn.dataset.channel;
+  renderDailyRateChart();
 });
 
 /* ========================= 테마 (다크/라이트) ========================= */
