@@ -681,6 +681,14 @@ function parseSalesCSV(csvText) {
     if (isNaN(date.getTime())) continue;
     const dateKey = date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
 
+    // 날짜 칸이 연말까지 미리 채워져 있고 실제 수량 칸은 아직 비어 있는 "미래 빈 행"을 실데이터로 착각하지
+    // 않도록, 모든 제품/플랫폼 칸이 전부 빈칸(공백)인 행은 아예 건너뛴다(0으로 채워 넣지 않음). 이렇게 해야
+    // "최근 N일" 계산이 미입력 빈 행이 아니라 실제로 값이 입력된 마지막 날짜를 기준으로 동작한다.
+    const rowHasAnyData = SALES_GROUPS.some(g =>
+      toNum(row[g.col]) !== null || toNum(row[g.col + 1]) !== null || toNum(row[g.col + 2]) !== null
+    );
+    if (!rowHasAnyData) continue;
+
     SALES_GROUPS.forEach(g => {
       const own = toNum(row[g.col]) || 0;
       const naver = toNum(row[g.col + 1]) || 0;
@@ -2569,7 +2577,5 @@ document.getElementById('refreshBtn').addEventListener('click', async () => {
   await loadAndRender(false);
 })();
 </script>
-</body>
-</html>
 </body>
 </html>
