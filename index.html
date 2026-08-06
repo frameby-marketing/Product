@@ -184,6 +184,7 @@
       <div class="insight" id="insightBox"></div>
     </div>
 
+    <p id="salesStatusNote" style="font-size:12px;color:var(--bad);margin:0 0 10px;display:none;"></p>
     <div class="two-col" id="platformCardsRow">
       <div class="card">
         <div class="card-header-row">
@@ -441,8 +442,11 @@ function buildDemoSalesCSV() {
     { col: 33, own: 3, naver: 2, mmall: 1 }    // DW플러스그린
   ];
 
-  const start = new Date(2026, 0, 1);
-  for (let i = 0; i < 70; i++) {
+  // 2025-12-15부터 시작해 12월→1월로 연도가 실제로 "넘어가는" 구간을 포함시킨다.
+  // (parseSalesCSV의 연도 판별은 "월이 이전 행보다 감소하면 연도 증가" 방식이라, 1월부터 바로 시작하면
+  //  연도가 넘어가는 시점이 없어 전부 2025년으로 잘못 인식되는 문제가 있었음 — 실제 시트처럼 12월 리드인을 둔다)
+  const start = new Date(2025, 11, 15);
+  for (let i = 0; i < 90; i++) {
     const d = new Date(start); d.setDate(d.getDate() + i);
     const vals = new Array(37).fill('');
     vals[0] = `${d.getMonth() + 1}월 ${d.getDate()}일`;
@@ -671,6 +675,30 @@ function parseSalesCSV(csvText) {
   return out;
 }
 
+// 실판매 CSV 원본을 훑어 진단 정보를 만든다 (연동은 됐는데 데이터가 0건일 때 원인 파악용:
+// 시트 비공개/탭 이름 오타면 CSV 대신 로그인 안내 HTML 등이 내려와 startRow를 못 찾게 된다).
+function analyzeSalesCSV(csvText) {
+  const rows = parseCSV(csvText);
+  let startRow = -1;
+  const maxScan = Math.min(rows.length, 15);
+  for (let i = 0; i < maxScan; i++) {
+    if (parseMonthDay(rows[i][0])) { startRow = i; break; }
+  }
+  let validDateRows = 0, rows2026 = 0;
+  if (startRow !== -1) {
+    let year = 2025, prevMonth = null;
+    for (let r = startRow; r < rows.length; r++) {
+      const md = parseMonthDay(rows[r][0]);
+      if (!md) continue;
+      validDateRows++;
+      if (prevMonth !== null && md.month < prevMonth) year++;
+      prevMonth = md.month;
+      if (year >= CONFIG.YEAR) rows2026++;
+    }
+  }
+  return { rowCount: rows.length, startRow, validDateRows, rows2026, preview: rows.slice(0, 6) };
+}
+
 /* ========================= 주차 계산 ========================= */
 function mondayOf(date) {
   const d = new Date(date);
@@ -745,7 +773,18 @@ async function loadData() {
   const own = parseChannelCSV(ownCSV, CONFIG.YEAR);
   const naver = parseChannelCSV(naverCSV, CONFIG.YEAR);
   const debug = { own: analyzeCSV(ownCSV), naver: analyzeCSV(naverCSV), usingDemo };
-  const salesData = parseSalesCSV(salesCSV);
+
+  // 실판매 시트는 fetch 자체는 성공(200)해도, 시트가 비공개거나 탭 이름이 다르면 CSV 대신
+  // 로그인 안내 HTML 등이 내려와 조용히 "데이터 0건"이 될 수 있다. 이 경우도 데모로 대체하고 표시한다.
+  const salesDebug = analyzeSalesCSV(salesCSV);
+  let salesData = parseSalesCSV(salesCSV);
+  const salesHasData = Object.values(salesData).some(b => b.daily.length > 0);
+  if (!salesUsingDemo && !salesHasData) {
+    console.warn('실판매 시트 연동은 됐지만 26년 데이터를 찾지 못했습니다(공유 설정/탭 이름 확인 필요). 데모 데이터로 대체합니다.');
+    salesUsingDemo = true;
+    salesData = parseSalesCSV(DEMO_SALES_CSV);
+  }
+  debug.sales = salesDebug;
 
   const products = Array.from(new Set([...Object.keys(own), ...Object.keys(naver)]));
 
@@ -1497,6 +1536,15 @@ function renderSalesSection() {
   const row = document.getElementById('platformCardsRow');
   const monthlyCard = document.getElementById('salesMonthlyCard');
   const colorRow = document.getElementById('colorCompRow');
+  const note = document.getElementById('salesStatusNote');
+  if (note) {
+    if (STATE.sales && STATE.sales.usingDemo) {
+      note.style.display = '';
+      note.textContent = '⚠ 실판매 시트 실시간 연동에 실패해 데모 데이터를 표시하고 있습니다. 시트가 "링크가 있는 모든 사용자에게 공개"로 공유되어 있는지, 탭 이름이 정확한지 확인해주세요. (하단 "진단 정보"에서 자세히 확인 가능)';
+    } else {
+      note.style.display = 'none';
+    }
+  }
   const bucket = STATE.sales?.data?.[activeProduct];
   if (!bucket || bucket.daily.length === 0) {
     if (row) row.style.display = 'none';
@@ -2036,10 +2084,27 @@ function renderDebug() {
     return html;
   }
 
+  function fmtSalesDiag(diag, label, usingDemo) {
+    let html = `<p><b>${label}</b> (${usingDemo ? '데모 데이터 사용 중' : '실시간 연동'}): CSV ${diag.rowCount}행 수신`;
+    if (diag.startRow === -1) {
+      html += `, "N월 M일" 형태의 날짜 데이터를 찾지 못했습니다.</p>`;
+      html += `<p style="font-size:12px;color:var(--bad);">→ 시트가 "링크가 있는 모든 사용자에게 공개"로 공유되어 있는지, 탭 이름이 "${CONFIG.SALES_SHEET_NAME}"과 정확히 일치하는지 확인해주세요. (비공개 시트는 CSV 대신 로그인 안내 페이지가 내려와 데이터를 못 읽습니다)</p>`;
+    } else {
+      html += `, 날짜 인식된 행 ${diag.validDateRows}개 중 ${CONFIG.YEAR}년 이상 데이터 ${diag.rows2026}개</p>`;
+      if (diag.rows2026 === 0) {
+        html += `<p style="font-size:12px;color:var(--bad);">→ ${CONFIG.YEAR}년 데이터를 찾지 못했습니다. 시트에 해당 연도 데이터가 아직 없거나, 날짜가 순서대로(연속) 기재되어 있는지 확인해주세요.</p>`;
+      }
+    }
+    html += '<pre style="white-space:pre-wrap;font-size:11px;background:var(--code-bg);padding:8px;border-radius:6px;overflow-x:auto;">' +
+      diag.preview.map((r, i) => (i + 1) + ': ' + r.slice(0, 6).join(' | ') + (r.length > 6 ? ' ...' : '')).join('\n') + '</pre>';
+    return html;
+  }
+
   box.innerHTML =
     `<p style="font-size:12px;color:var(--sub);">모드: ${STATE.usingDemo ? '데모 데이터' : '구글 시트 실시간 연동'}</p>` +
     fmtDiag(STATE.debug.own, CONFIG.OWN_SHEET_NAME + ' (자사몰)') +
-    fmtDiag(STATE.debug.naver, CONFIG.NAVER_SHEET_NAME + ' (네이버)');
+    fmtDiag(STATE.debug.naver, CONFIG.NAVER_SHEET_NAME + ' (네이버)') +
+    (STATE.debug.sales ? fmtSalesDiag(STATE.debug.sales, CONFIG.SALES_SHEET_NAME + ' (실판매)', STATE.sales.usingDemo) : '');
 
   if (STATE.products.length === 0) details.setAttribute('open', '');
 }
