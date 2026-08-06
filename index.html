@@ -118,6 +118,9 @@
   .overview-metric .big-delta{font-size:22px; font-weight:800; margin:2px 0 10px;}
   .overview-metric .big-delta.up{color:var(--good);} .overview-metric .big-delta.down{color:var(--bad);} .overview-metric .big-delta.flat{color:var(--sub);}
   .chart-box.small{height:160px;}
+  .chart-box.pie-box{height:230px;}
+  .overview-metrics.cols-3{grid-template-columns:repeat(3,1fr);}
+  @media (max-width:520px){ .overview-metrics.cols-3{grid-template-columns:1fr;} }
   .health-badge{border-radius:8px; padding:10px 14px; margin-bottom:14px;}
   .health-badge .health-label{font-weight:800; font-size:14.5px; margin-right:6px;}
   .health-badge .health-desc{font-size:12.5px; line-height:1.5; margin-top:3px; color:var(--text);}
@@ -195,7 +198,7 @@
             <button data-period="30">최근 30일</button>
           </div>
         </div>
-        <div class="chart-box"><canvas id="platPieChart"></canvas></div>
+        <div class="chart-box pie-box"><canvas id="platPieChart"></canvas></div>
       </div>
       <div class="card">
         <div class="card-header-row">
@@ -218,7 +221,7 @@
     <div class="two-col" id="colorCompRow">
       <div class="card">
         <h2>26년 누적 색상별 비중</h2>
-        <div class="chart-box"><canvas id="colorPieYTDChart"></canvas></div>
+        <div class="chart-box pie-box"><canvas id="colorPieYTDChart"></canvas></div>
       </div>
       <div class="card">
         <div class="card-header-row">
@@ -229,7 +232,7 @@
             <button data-period="30">최근 30일</button>
           </div>
         </div>
-        <div class="chart-box"><canvas id="colorPiePeriodChart"></canvas></div>
+        <div class="chart-box pie-box"><canvas id="colorPiePeriodChart"></canvas></div>
       </div>
     </div>
 
@@ -1480,7 +1483,7 @@ function renderPlatformComparison() {
   const dOwn = deltaOf(cmp.cur.own, cmp.prev.own, false, label);
   const dNaver = deltaOf(cmp.cur.naver, cmp.prev.naver, false, label);
   const dMmall = deltaOf(cmp.cur.mmall, cmp.prev.mmall, false, label);
-  box.innerHTML = `<div class="overview-metrics">
+  box.innerHTML = `<div class="overview-metrics cols-3">
     <div class="overview-metric"><div class="metric-label">자사몰</div><div class="chart-box small"><canvas id="platCompOwnCanvas"></canvas></div><div class="delta ${dOwn.cls}">${dOwn.text}</div></div>
     <div class="overview-metric"><div class="metric-label">네이버</div><div class="chart-box small"><canvas id="platCompNaverCanvas"></canvas></div><div class="delta ${dNaver.cls}">${dNaver.text}</div></div>
     <div class="overview-metric"><div class="metric-label">M몰</div><div class="chart-box small"><canvas id="platCompMmallCanvas"></canvas></div><div class="delta ${dMmall.cls}">${dMmall.text}</div></div>
