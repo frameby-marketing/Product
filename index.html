@@ -620,17 +620,29 @@ const SALES_GROUPS = [
   { product: 'DW 플러스', color: '그린', col: 33 }
 ];
 
-// "N월 M일" 형태에서 월/일만 추출 (뒤에 요일 텍스트가 붙어 있어도 무시)
-function parseMonthDay(s) {
+// "26년 1월 1일 목요일" 처럼 연도가 명시된 형태를 최우선으로 시도하고(가장 신뢰도 높음, 2자리 연도는
+// 2000을 더해 보정), 연도 표기가 없는 "1월 1일" 형태는 폴백으로 지원한다(hasYear:false).
+function parseSalesDateParts(s) {
   if (!s) return null;
-  const m = String(s).match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-  if (!m) return null;
-  return { month: parseInt(m[1], 10), day: parseInt(m[2], 10) };
+  const withYear = String(s).match(/(\d{2,4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (withYear) {
+    let year = parseInt(withYear[1], 10);
+    if (year < 100) year += 2000;
+    return { year, month: parseInt(withYear[2], 10), day: parseInt(withYear[3], 10), hasYear: true };
+  }
+  const noYear = String(s).match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (noYear) return { year: null, month: parseInt(noYear[1], 10), day: parseInt(noYear[2], 10), hasYear: false };
+  return null;
+}
+// 하위 호환용: 월/일만 필요한 곳에서 사용
+function parseMonthDay(s) {
+  const p = parseSalesDateParts(s);
+  return p ? { month: p.month, day: p.day } : null;
 }
 
-// 실판매 시트는 2025-10-15부터 매일 순서대로(연도 표기 없이) 기재되어 있다. 행을 순서대로 훑으며
-// 월이 이전 행보다 "감소"하면(예: 12월→1월) 연도가 넘어간 것으로 보고 1씩 증가시킨다.
-// 26년 미만 데이터는 (연도 추적에는 사용하되) 최종 결과에는 포함하지 않는다.
+// 실판매 시트의 각 데이터 행은 "26년 1월 1일 목요일"처럼 연도가 명시되어 있으므로 이를 최우선으로 사용한다.
+// 혹시 연도 표기가 없는 행을 만나면(폴백), 이전 행보다 월이 "감소"할 때(예: 12월→1월) 연도가 넘어간 것으로
+// 보고 1씩 증가시키는 방식으로 추정한다. 26년 미만 데이터는 최종 결과에는 포함하지 않는다.
 function parseSalesCSV(csvText) {
   const rows = parseCSV(csvText);
   const bucketOf = {};
@@ -639,26 +651,33 @@ function parseSalesCSV(csvText) {
     if (g.color && !bucketOf[g.product].colors.includes(g.color)) bucketOf[g.product].colors.push(g.color);
   });
 
-  // 데이터 시작 행: A열이 "N월 M일" 형태로 파싱되는 첫 행 (제품명/헤더 행은 건너뜀)
+  // 데이터 시작 행: A열이 날짜 형태로 파싱되는 첫 행 (제품명/헤더 행은 건너뜀)
   let startRow = -1;
   const maxScan = Math.min(rows.length, 15);
   for (let i = 0; i < maxScan; i++) {
-    if (parseMonthDay(rows[i][0])) { startRow = i; break; }
+    if (parseSalesDateParts(rows[i][0])) { startRow = i; break; }
   }
   const out = {};
   if (startRow === -1) return out;
 
-  let year = 2025;
+  let fallbackYear = 2025; // 연도 표기가 없는 행을 만났을 때만 사용하는 추정치
   let prevMonth = null;
   for (let r = startRow; r < rows.length; r++) {
     const row = rows[r];
-    const md = parseMonthDay(row[0]);
-    if (!md) continue; // 합계/빈 행 등은 건너뜀
-    if (prevMonth !== null && md.month < prevMonth) year++;
-    prevMonth = md.month;
+    const dp = parseSalesDateParts(row[0]);
+    if (!dp) continue; // 합계/빈 행 등은 건너뜀
+
+    let year;
+    if (dp.hasYear) {
+      year = dp.year;
+    } else {
+      if (prevMonth !== null && dp.month < prevMonth) fallbackYear++;
+      year = fallbackYear;
+    }
+    prevMonth = dp.month;
     if (year < CONFIG.YEAR) continue; // 26년 데이터부터만 사용
 
-    const date = new Date(year, md.month - 1, md.day);
+    const date = new Date(year, dp.month - 1, dp.day);
     if (isNaN(date.getTime())) continue;
     const dateKey = date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
 
@@ -686,17 +705,19 @@ function analyzeSalesCSV(csvText) {
   let startRow = -1;
   const maxScan = Math.min(rows.length, 15);
   for (let i = 0; i < maxScan; i++) {
-    if (parseMonthDay(rows[i][0])) { startRow = i; break; }
+    if (parseSalesDateParts(rows[i][0])) { startRow = i; break; }
   }
   let validDateRows = 0, rows2026 = 0;
   if (startRow !== -1) {
-    let year = 2025, prevMonth = null;
+    let fallbackYear = 2025, prevMonth = null;
     for (let r = startRow; r < rows.length; r++) {
-      const md = parseMonthDay(rows[r][0]);
-      if (!md) continue;
+      const dp = parseSalesDateParts(rows[r][0]);
+      if (!dp) continue;
       validDateRows++;
-      if (prevMonth !== null && md.month < prevMonth) year++;
-      prevMonth = md.month;
+      let year;
+      if (dp.hasYear) { year = dp.year; }
+      else { if (prevMonth !== null && dp.month < prevMonth) fallbackYear++; year = fallbackYear; }
+      prevMonth = dp.month;
       if (year >= CONFIG.YEAR) rows2026++;
     }
   }
