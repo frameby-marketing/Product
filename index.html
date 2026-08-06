@@ -184,6 +184,54 @@
       <div class="insight" id="insightBox"></div>
     </div>
 
+    <div class="two-col" id="platformCardsRow">
+      <div class="card">
+        <div class="card-header-row">
+          <h2 id="platPieTitle">플랫폼별 판매 비중 (최근 7일)</h2>
+          <div class="channel-toggle compact" id="platPieToggle">
+            <button data-period="7" class="active">최근 7일</button>
+            <button data-period="14">최근 14일</button>
+            <button data-period="30">최근 30일</button>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="platPieChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header-row">
+          <h2 id="platCompTitle">플랫폼별 일평균 판매수량 비교 (최근 7일 vs 직전 7일)</h2>
+          <div class="channel-toggle compact" id="platCompToggle">
+            <button data-period="7" class="active">최근 7일</button>
+            <button data-period="14">최근 14일</button>
+            <button data-period="30">최근 30일</button>
+          </div>
+        </div>
+        <div id="platCompBox"></div>
+      </div>
+    </div>
+
+    <div class="card" id="salesMonthlyCard">
+      <h2>플랫폼별 월별 일평균 판매수량 (2026년)</h2>
+      <div id="salesMonthlyBox"></div>
+    </div>
+
+    <div class="two-col" id="colorCompRow">
+      <div class="card">
+        <h2>26년 누적 색상별 비중</h2>
+        <div class="chart-box"><canvas id="colorPieYTDChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header-row">
+          <h2 id="colorPiePeriodTitle">색상별 비중 (최근 7일)</h2>
+          <div class="channel-toggle compact" id="colorPiePeriodToggle">
+            <button data-period="7" class="active">최근 7일</button>
+            <button data-period="14">최근 14일</button>
+            <button data-period="30">최근 30일</button>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="colorPiePeriodChart"></canvas></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header-row">
         <h2 id="dailySalesTitle">최근 30일 일별 판매량 (통합)</h2>
@@ -191,6 +239,7 @@
           <button data-channel="combined" class="active">자사몰+네이버 합산</button>
           <button data-channel="own">자사몰</button>
           <button data-channel="naver">네이버</button>
+          <button data-channel="mmall">M몰</button>
         </div>
       </div>
       <div class="chart-box"><canvas id="chartDailySales"></canvas></div>
@@ -289,7 +338,10 @@ const CONFIG = {
   SHEET_ID: "1dSRAB8r9is6IqAucdXfIThOqL1R-eTrWWJbjTUJ4l3c",              // 여기에 구글 스프레드시트 ID를 입력하세요 (비워두면 데모 데이터 사용)
   OWN_SHEET_NAME: "2026 자사몰",
   NAVER_SHEET_NAME: "2026 네이버",
-  YEAR: 2026
+  YEAR: 2026,
+  // 색상/플랫폼별 실판매 수량은 위와 별도의 스프레드시트에서 관리된다.
+  SALES_SHEET_ID: "1najWl30V40gEHacr6LaNYDIaEgLHGAcxdLDqneW6MxE",
+  SALES_SHEET_NAME: "실판매"
 };
 
 /* ========================= 데모 데이터 ========================= */
@@ -360,6 +412,51 @@ const DEMO_NAVER_CSV = `,맥세이프 킥프레임,,
 1월 29일 목,219,12,5.48%
 1월 30일 금,180,5,2.78%
 1월 31일 토,195,11,5.64%`;
+
+// 실판매(색상/플랫폼별 판매수량) 데모 데이터를 코드로 생성한다. 실제 시트는 37개 열 × 수백 행이라
+// 손으로 하드코딩하기엔 너무 커서, 실제 시트와 동일한 열 구조로 결정론적 의사난수 데이터를 만든다.
+// 헤더 2줄 + 2026-01-01부터 70일치 데이터로, "실제 데이터는 3행부터" 라는 실제 시트 구조를 그대로 흉내낸다.
+function buildDemoSalesCSV() {
+  const nameRow = new Array(37).fill('');
+  nameRow[1] = '킥프레임'; nameRow[9] = 'PH실버'; nameRow[13] = 'PH블랙';
+  nameRow[17] = 'DW프로실버'; nameRow[21] = 'DW프로블랙';
+  nameRow[25] = 'DW플러스실버'; nameRow[29] = 'DW플러스블랙'; nameRow[33] = 'DW플러스그린';
+  const headerRow = new Array(37).fill('');
+  headerRow[0] = '일자';
+  [1, 9, 13, 17, 21, 25, 29, 33].forEach(c => { headerRow[c] = '자사몰'; headerRow[c + 1] = '네이버'; headerRow[c + 2] = 'M몰'; headerRow[c + 3] = '총'; });
+  const rows = [nameRow.join(','), headerRow.join(',')];
+
+  let seed = 42;
+  function rand() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+  function ri(min, max) { return Math.max(0, Math.floor(min + rand() * (max - min + 1))); }
+
+  const groupBases = [
+    { col: 1, own: 12, naver: 9, mmall: 3 },   // 킥프레임
+    { col: 9, own: 8, naver: 5, mmall: 2 },    // PH실버
+    { col: 13, own: 6, naver: 4, mmall: 2 },   // PH블랙
+    { col: 17, own: 7, naver: 5, mmall: 2 },   // DW프로실버
+    { col: 21, own: 5, naver: 3, mmall: 1 },   // DW프로블랙
+    { col: 25, own: 6, naver: 4, mmall: 2 },   // DW플러스실버
+    { col: 29, own: 5, naver: 3, mmall: 1 },   // DW플러스블랙
+    { col: 33, own: 3, naver: 2, mmall: 1 }    // DW플러스그린
+  ];
+
+  const start = new Date(2026, 0, 1);
+  for (let i = 0; i < 70; i++) {
+    const d = new Date(start); d.setDate(d.getDate() + i);
+    const vals = new Array(37).fill('');
+    vals[0] = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+    groupBases.forEach(g => {
+      const o = ri(g.own - 4, g.own + 6);
+      const n = ri(g.naver - 3, g.naver + 5);
+      const m = ri(g.mmall - 1, g.mmall + 3);
+      vals[g.col] = o; vals[g.col + 1] = n; vals[g.col + 2] = m; vals[g.col + 3] = o + n + m;
+    });
+    rows.push(vals.join(','));
+  }
+  return rows.join('\n');
+}
+const DEMO_SALES_CSV = buildDemoSalesCSV();
 
 /* ========================= CSV 파서 ========================= */
 function parseCSV(text) {
@@ -502,6 +599,78 @@ function parseChannelCSV(csvText, year) {
   return result;
 }
 
+// 실판매 시트 컬럼 매핑 (0-indexed). 각 (제품,색상) 그룹은 [자사몰, 네이버, M몰, 총] 4개 열로 구성되며,
+// "총" 열은 신뢰하지 않고 항상 자사몰+네이버+M몰을 직접 더해 사용한다(수식 누락/오류에 안전).
+const SALES_GROUPS = [
+  { product: '킥프레임', color: null, col: 1 },
+  { product: 'PH 스탠드', color: '실버', col: 9 },
+  { product: 'PH 스탠드', color: '블랙', col: 13 },
+  { product: 'DW 프로', color: '실버', col: 17 },
+  { product: 'DW 프로', color: '블랙', col: 21 },
+  { product: 'DW 플러스', color: '실버', col: 25 },
+  { product: 'DW 플러스', color: '블랙', col: 29 },
+  { product: 'DW 플러스', color: '그린', col: 33 }
+];
+
+// "N월 M일" 형태에서 월/일만 추출 (뒤에 요일 텍스트가 붙어 있어도 무시)
+function parseMonthDay(s) {
+  if (!s) return null;
+  const m = String(s).match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (!m) return null;
+  return { month: parseInt(m[1], 10), day: parseInt(m[2], 10) };
+}
+
+// 실판매 시트는 2025-10-15부터 매일 순서대로(연도 표기 없이) 기재되어 있다. 행을 순서대로 훑으며
+// 월이 이전 행보다 "감소"하면(예: 12월→1월) 연도가 넘어간 것으로 보고 1씩 증가시킨다.
+// 26년 미만 데이터는 (연도 추적에는 사용하되) 최종 결과에는 포함하지 않는다.
+function parseSalesCSV(csvText) {
+  const rows = parseCSV(csvText);
+  const bucketOf = {};
+  SALES_GROUPS.forEach(g => {
+    if (!bucketOf[g.product]) bucketOf[g.product] = { colors: [], dayMap: new Map() };
+    if (g.color && !bucketOf[g.product].colors.includes(g.color)) bucketOf[g.product].colors.push(g.color);
+  });
+
+  // 데이터 시작 행: A열이 "N월 M일" 형태로 파싱되는 첫 행 (제품명/헤더 행은 건너뜀)
+  let startRow = -1;
+  const maxScan = Math.min(rows.length, 15);
+  for (let i = 0; i < maxScan; i++) {
+    if (parseMonthDay(rows[i][0])) { startRow = i; break; }
+  }
+  const out = {};
+  if (startRow === -1) return out;
+
+  let year = 2025;
+  let prevMonth = null;
+  for (let r = startRow; r < rows.length; r++) {
+    const row = rows[r];
+    const md = parseMonthDay(row[0]);
+    if (!md) continue; // 합계/빈 행 등은 건너뜀
+    if (prevMonth !== null && md.month < prevMonth) year++;
+    prevMonth = md.month;
+    if (year < CONFIG.YEAR) continue; // 26년 데이터부터만 사용
+
+    const date = new Date(year, md.month - 1, md.day);
+    if (isNaN(date.getTime())) continue;
+    const dateKey = date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
+
+    SALES_GROUPS.forEach(g => {
+      const own = toNum(row[g.col]) || 0;
+      const naver = toNum(row[g.col + 1]) || 0;
+      const mmall = toNum(row[g.col + 2]) || 0;
+      const bucket = bucketOf[g.product];
+      let dayEntry = bucket.dayMap.get(dateKey);
+      if (!dayEntry) { dayEntry = { date, byColor: {} }; bucket.dayMap.set(dateKey, dayEntry); }
+      dayEntry.byColor[g.color || '__single__'] = { own, naver, mmall };
+    });
+  }
+
+  Object.entries(bucketOf).forEach(([product, bucket]) => {
+    out[product] = { colors: bucket.colors, daily: Array.from(bucket.dayMap.values()).sort((a, b) => a.date - b.date) };
+  });
+  return out;
+}
+
 /* ========================= 주차 계산 ========================= */
 function mondayOf(date) {
   const d = new Date(date);
@@ -525,35 +694,58 @@ function weekIndexOf(date, firstMonday) {
 }
 
 /* ========================= 데이터 로드 & 집계 파이프라인 ========================= */
-let STATE = { channels: {}, products: [], weeks: [], weeklyAgg: {}, months: [], monthlyAgg: {}, daily: {}, usingDemo: true };
+let STATE = { channels: {}, products: [], weeks: [], weeklyAgg: {}, months: [], monthlyAgg: {}, daily: {}, usingDemo: true, sales: { data: {}, usingDemo: true } };
 
-async function fetchSheetCSV(sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+async function fetchSheetCSVFrom(sheetId, sheetName) {
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('fetch failed: ' + res.status);
   return await res.text();
 }
+async function fetchSheetCSV(sheetName) { return fetchSheetCSVFrom(CONFIG.SHEET_ID, sheetName); }
 
 async function loadData() {
   let ownCSV, naverCSV, usingDemo = true;
-  if (CONFIG.SHEET_ID && CONFIG.SHEET_ID.trim() !== '') {
-    try {
-      [ownCSV, naverCSV] = await Promise.all([
-        fetchSheetCSV(CONFIG.OWN_SHEET_NAME),
-        fetchSheetCSV(CONFIG.NAVER_SHEET_NAME)
-      ]);
-      usingDemo = false;
-    } catch (e) {
-      console.warn('실시간 연동 실패, 데모 데이터로 대체합니다.', e);
+  let salesCSV, salesUsingDemo = true;
+
+  const mainFetch = (async () => {
+    if (CONFIG.SHEET_ID && CONFIG.SHEET_ID.trim() !== '') {
+      try {
+        [ownCSV, naverCSV] = await Promise.all([
+          fetchSheetCSV(CONFIG.OWN_SHEET_NAME),
+          fetchSheetCSV(CONFIG.NAVER_SHEET_NAME)
+        ]);
+        usingDemo = false;
+      } catch (e) {
+        console.warn('실시간 연동 실패, 데모 데이터로 대체합니다.', e);
+        ownCSV = DEMO_OWN_CSV; naverCSV = DEMO_NAVER_CSV; usingDemo = true;
+      }
+    } else {
       ownCSV = DEMO_OWN_CSV; naverCSV = DEMO_NAVER_CSV; usingDemo = true;
     }
-  } else {
-    ownCSV = DEMO_OWN_CSV; naverCSV = DEMO_NAVER_CSV; usingDemo = true;
-  }
+  })();
+
+  // 실판매(색상/플랫폼) 시트는 별도의 스프레드시트라 연동 실패해도 메인 대시보드에는 영향이 없도록 분리한다.
+  const salesFetch = (async () => {
+    if (CONFIG.SALES_SHEET_ID && CONFIG.SALES_SHEET_ID.trim() !== '') {
+      try {
+        salesCSV = await fetchSheetCSVFrom(CONFIG.SALES_SHEET_ID, CONFIG.SALES_SHEET_NAME);
+        salesUsingDemo = false;
+      } catch (e) {
+        console.warn('실판매 시트 연동 실패, 데모 데이터로 대체합니다.', e);
+        salesCSV = DEMO_SALES_CSV; salesUsingDemo = true;
+      }
+    } else {
+      salesCSV = DEMO_SALES_CSV; salesUsingDemo = true;
+    }
+  })();
+
+  await Promise.all([mainFetch, salesFetch]);
 
   const own = parseChannelCSV(ownCSV, CONFIG.YEAR);
   const naver = parseChannelCSV(naverCSV, CONFIG.YEAR);
   const debug = { own: analyzeCSV(ownCSV), naver: analyzeCSV(naverCSV), usingDemo };
+  const salesData = parseSalesCSV(salesCSV);
 
   const products = Array.from(new Set([...Object.keys(own), ...Object.keys(naver)]));
 
@@ -628,7 +820,7 @@ async function loadData() {
     };
   });
 
-  STATE = { channels: { own, naver }, products, weeks, weeklyAgg, months, monthlyAgg, daily, usingDemo, debug };
+  STATE = { channels: { own, naver }, products, weeks, weeklyAgg, months, monthlyAgg, daily, usingDemo, debug, sales: { data: salesData, usingDemo: salesUsingDemo } };
   return STATE;
 }
 
@@ -647,6 +839,18 @@ let dailyExposureChannel = 'combined';
 let insightCharts = {};
 let rollingCharts = {};
 let peakCharts = {};
+let salesCharts = {};
+// 색상/플랫폼 판매 카드들의 기간 선택 상태 (제품 탭을 넘나들며 공유되는 전역 상태 - 기존 dailySalesChannel 등과 동일한 패턴).
+let platPiePeriod = 7;    // 플랫폼 비중 파이차트: 7 | 14 | 30
+let platCompPeriod = 7;   // 플랫폼 일평균 비교: 7 | 14 | 30
+let colorPiePeriod = 7;   // 색상 비중(기간별) 파이차트: 7 | 14 | 30
+const PLATFORM_COLORS = { own: '#3b82f6', naver: '#22c55e', mmall: '#9ca3af' };
+const COLOR_SWATCHES = { '실버': '#cbd5e1', '블랙': '#334155', '그린': '#22c55e' };
+
+function destroySalesCharts() {
+  Object.keys(salesCharts).forEach(k => { salesCharts[k].destroy(); });
+  salesCharts = {};
+}
 
 function pct(n) { return (n === null || n === undefined || isNaN(n)) ? '-' : (n * 100).toFixed(2) + '%'; }
 function numFmt(n) { return (n === null || n === undefined) ? '-' : Math.round(n).toLocaleString('ko-KR'); }
@@ -1047,6 +1251,48 @@ function chartOptions(colors, isPercent) {
   };
 }
 
+// 원형 그래프 + 슬라이스 안에 "라벨 / 비중%" 표시. 어느 슬라이스 색상, 어느 테마에서도 잘 보이도록
+// 흰 글씨에 어두운 외곽선을 둘러 그린다(Chart.js는 파이 라벨을 기본 제공하지 않아 로컬 플러그인으로 직접 그림).
+function renderPieChart(canvasId, labels, values, sliceColors) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  const colors = getThemeColors();
+  const total = values.reduce((a, b) => a + (b || 0), 0);
+  return new Chart(canvas, {
+    type: 'pie',
+    data: { labels, datasets: [{ data: values, backgroundColor: sliceColors, borderColor: 'rgba(0,0,0,0.25)', borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: colors.text, font: { size: 11 } } } }
+    },
+    plugins: [{
+      id: 'pieCenterLabel',
+      afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        const meta = chart.getDatasetMeta(0);
+        meta.data.forEach((arc, idx) => {
+          const val = chart.data.datasets[0].data[idx];
+          if (!val || total <= 0) return;
+          const pctText = (val / total * 100).toFixed(1) + '%';
+          const pos = arc.getCenterPoint ? arc.getCenterPoint() : { x: arc.x, y: arc.y };
+          ctx.save();
+          ctx.font = 'bold 12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeText(chart.data.labels[idx], pos.x, pos.y - 8);
+          ctx.fillText(chart.data.labels[idx], pos.x, pos.y - 8);
+          ctx.strokeText(pctText, pos.x, pos.y + 8);
+          ctx.fillText(pctText, pos.x, pos.y + 8);
+          ctx.restore();
+        });
+      }
+    }]
+  });
+}
+
 function avgLineDataset(value, label, color, n) {
   return {
     label, data: new Array(n).fill(value), borderColor: color, backgroundColor: color,
@@ -1066,6 +1312,73 @@ function isWeekComplete(wi) {
 }
 // 완성된 주만 남긴 목록 (보통 진행 중인 마지막 주 하나만 제외됨 → 자연히 "전주차까지만" 보여짐)
 function completeWeeks() { return STATE.weeks.filter(isWeekComplete); }
+
+/* ===== 실판매(색상/플랫폼) 집계 헬퍼 ===== */
+
+// product의 색상별 원자료를 날짜별로 합산해 플랫폼(자사몰/네이버/M몰) 시계열로 만든다.
+// days가 없으면 전체(YTD) 기간을 반환한다.
+function salesPlatformDailySeries(product, days) {
+  const bucket = STATE.sales?.data?.[product];
+  if (!bucket) return [];
+  const merged = bucket.daily.map(d => {
+    let own = 0, naver = 0, mmall = 0;
+    Object.values(d.byColor).forEach(v => { own += v.own; naver += v.naver; mmall += v.mmall; });
+    return { date: d.date, own, naver, mmall };
+  });
+  return days ? merged.slice(-days) : merged;
+}
+
+// 최근 N일 vs 직전 N일 플랫폼별 일평균 판매수량을 계산한다 (직전 기간이 N일 전부 채워져 있을 때만 비교값 반환).
+function salesPlatformRollingCompare(product, days) {
+  const series = salesPlatformDailySeries(product, null);
+  if (series.length === 0) return null;
+  const maxDate = series[series.length - 1].date;
+  function avgInRange(offset) {
+    const end = new Date(maxDate); end.setDate(end.getDate() - offset * days);
+    const start = new Date(end); start.setDate(start.getDate() - (days - 1));
+    const rows = series.filter(r => r.date >= start && r.date <= end);
+    if (rows.length === 0) return { own: null, naver: null, mmall: null, filled: false };
+    const sum = rows.reduce((a, r) => ({ own: a.own + r.own, naver: a.naver + r.naver, mmall: a.mmall + r.mmall }), { own: 0, naver: 0, mmall: 0 });
+    return { own: sum.own / rows.length, naver: sum.naver / rows.length, mmall: sum.mmall / rows.length, filled: rows.length === days };
+  }
+  const cur = avgInRange(0);
+  const prevRaw = avgInRange(1);
+  const prev = prevRaw.filled ? prevRaw : { own: null, naver: null, mmall: null };
+  return { cur, prev };
+}
+
+// 색상별 총 판매수량(자사몰+네이버+M몰) 합계. days가 없으면 전체(26년 누적) 기간을 사용한다.
+function salesColorTotals(product, days) {
+  const bucket = STATE.sales?.data?.[product];
+  if (!bucket) return {};
+  const rows = days ? bucket.daily.slice(-days) : bucket.daily;
+  const totals = {};
+  bucket.colors.forEach(c => { totals[c] = 0; });
+  rows.forEach(d => {
+    Object.entries(d.byColor).forEach(([color, v]) => {
+      if (color === '__single__') return;
+      totals[color] = (totals[color] || 0) + v.own + v.naver + v.mmall;
+    });
+  });
+  return totals;
+}
+
+// 월별(달력 기준) 플랫폼별 일평균 판매수량. 실제 데이터가 있는 달까지만 반환된다(자동으로 새 달 추가).
+function salesMonthlyPlatformAvg(product) {
+  const series = salesPlatformDailySeries(product, null);
+  const byMonth = new Map();
+  series.forEach(r => {
+    const mk = r.date.getFullYear() * 100 + r.date.getMonth();
+    let b = byMonth.get(mk);
+    if (!b) { b = { own: 0, naver: 0, mmall: 0, days: 0, monthStart: new Date(r.date.getFullYear(), r.date.getMonth(), 1) }; byMonth.set(mk, b); }
+    b.own += r.own; b.naver += r.naver; b.mmall += r.mmall; b.days++;
+  });
+  return Array.from(byMonth.entries()).sort((a, b) => a[0] - b[0]).map(([mk, b]) => ({
+    mk, label: (b.monthStart.getMonth() + 1) + '월',
+    ownAvg: b.own / b.days, naverAvg: b.naver / b.days, mmallAvg: b.mmall / b.days,
+    totalAvg: (b.own + b.naver + b.mmall) / b.days
+  }));
+}
 
 // 일별 노출수/전환수 시계열. channel이 'combined'면 자사몰+네이버 두 채널의 날짜별 원자료를 날짜 기준으로
 // 병합해(채널마다 데이터 입력일이 달라도 날짜별로 정확히 합산됨) 하나의 타임라인으로 만들고,
@@ -1100,15 +1413,121 @@ function whiteAvgLineDataset(value, label, n, fmt) {
   };
 }
 
-// 개별 제품 탭 전용: 최근 30일 일별 판매량(전환수)을 세로 막대그래프로 표시. 통합/자사몰/네이버 탭으로 전환 가능.
+function destroySalesChart(key) { if (salesCharts[key]) { salesCharts[key].destroy(); delete salesCharts[key]; } }
+
+// 플랫폼별(자사몰/네이버/M몰) 판매 비중 파이차트. platPiePeriod(7/14/30일) 기간 동안의 합계를 사용한다.
+function renderPlatformPie() {
+  destroySalesChart('platPie');
+  const canvas = document.getElementById('platPieChart');
+  if (!canvas) return;
+  const titleEl = document.getElementById('platPieTitle');
+  if (titleEl) titleEl.textContent = `플랫폼별 판매 비중 (최근 ${platPiePeriod}일)`;
+  const series = salesPlatformDailySeries(activeProduct, platPiePeriod);
+  const totals = series.reduce((a, r) => ({ own: a.own + r.own, naver: a.naver + r.naver, mmall: a.mmall + r.mmall }), { own: 0, naver: 0, mmall: 0 });
+  const chart = renderPieChart('platPieChart', ['자사몰', '네이버', 'M몰'], [totals.own, totals.naver, totals.mmall], [PLATFORM_COLORS.own, PLATFORM_COLORS.naver, PLATFORM_COLORS.mmall]);
+  if (chart) salesCharts.platPie = chart;
+}
+
+// 플랫폼별(자사몰/네이버/M몰) 일평균 판매수량을 "최근 N일 vs 직전 N일" 미니 막대그래프 3개로 비교한다.
+function renderPlatformComparison() {
+  ['platCompOwn', 'platCompNaver', 'platCompMmall'].forEach(destroySalesChart);
+  const box = document.getElementById('platCompBox');
+  if (!box) return;
+  const titleEl = document.getElementById('platCompTitle');
+  if (titleEl) titleEl.textContent = `플랫폼별 일평균 판매수량 비교 (최근 ${platCompPeriod}일 vs 직전 ${platCompPeriod}일)`;
+  const cmp = salesPlatformRollingCompare(activeProduct, platCompPeriod);
+  if (!cmp) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+  const label = `직전 ${platCompPeriod}일`;
+  const dOwn = deltaOf(cmp.cur.own, cmp.prev.own, false, label);
+  const dNaver = deltaOf(cmp.cur.naver, cmp.prev.naver, false, label);
+  const dMmall = deltaOf(cmp.cur.mmall, cmp.prev.mmall, false, label);
+  box.innerHTML = `<div class="overview-metrics">
+    <div class="overview-metric"><div class="metric-label">자사몰</div><div class="chart-box small"><canvas id="platCompOwnCanvas"></canvas></div><div class="delta ${dOwn.cls}">${dOwn.text}</div></div>
+    <div class="overview-metric"><div class="metric-label">네이버</div><div class="chart-box small"><canvas id="platCompNaverCanvas"></canvas></div><div class="delta ${dNaver.cls}">${dNaver.text}</div></div>
+    <div class="overview-metric"><div class="metric-label">M몰</div><div class="chart-box small"><canvas id="platCompMmallCanvas"></canvas></div><div class="delta ${dMmall.cls}">${dMmall.text}</div></div>
+  </div>`;
+  const curLabel = `최근 ${platCompPeriod}일`, prevLabel = `직전 ${platCompPeriod}일`;
+  let ch = miniBarChart('platCompOwnCanvas', [prevLabel, curLabel], [cmp.prev.own, cmp.cur.own], dOwn.cls, v => numFmt(v));
+  if (ch) salesCharts.platCompOwn = ch;
+  ch = miniBarChart('platCompNaverCanvas', [prevLabel, curLabel], [cmp.prev.naver, cmp.cur.naver], dNaver.cls, v => numFmt(v));
+  if (ch) salesCharts.platCompNaver = ch;
+  ch = miniBarChart('platCompMmallCanvas', [prevLabel, curLabel], [cmp.prev.mmall, cmp.cur.mmall], dMmall.cls, v => numFmt(v));
+  if (ch) salesCharts.platCompMmall = ch;
+}
+
+// 플랫폼별 월별(달력 기준) 일평균 판매수량 표. 2026년 데이터가 있는 달까지만 표시되며 새 달이 기재되면 자동으로 늘어난다.
+function renderSalesMonthlyTable() {
+  const box = document.getElementById('salesMonthlyBox');
+  if (!box) return;
+  const rows = salesMonthlyPlatformAvg(activeProduct);
+  if (rows.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
+  const curMonthKey = monthKeyOf(new Date());
+  const head = `<thead><tr><th>월</th><th>자사몰 일평균</th><th>네이버 일평균</th><th>M몰 일평균</th><th>총 일평균</th></tr></thead>`;
+  const body = '<tbody>' + rows.map(r => `<tr class="${r.mk === curMonthKey ? 'current-row' : ''}">
+      <td>${r.label}${r.mk === curMonthKey ? ' (현재)' : ''}</td>
+      <td>${numFmt(r.ownAvg)}</td><td>${numFmt(r.naverAvg)}</td><td>${numFmt(r.mmallAvg)}</td><td>${numFmt(r.totalAvg)}</td>
+    </tr>`).join('') + '</tbody>';
+  box.innerHTML = `<div style="overflow-x:auto;"><table>${head}${body}</table></div>`;
+}
+
+// 색상별 판매 비중 파이차트 2개: 왼쪽=26년 누적, 오른쪽=colorPiePeriod(7/14/30일) 기간. PH/DW프로/DW플러스처럼
+// 색상이 있는 제품에서만 호출된다(킥프레임은 renderSalesSection에서 이 함수 자체를 호출하지 않음).
+function renderColorComposition() {
+  destroySalesChart('colorPieYTD');
+  destroySalesChart('colorPiePeriod');
+  const bucket = STATE.sales?.data?.[activeProduct];
+  if (!bucket || bucket.colors.length === 0) return;
+
+  const labels = bucket.colors;
+  const sliceColors = bucket.colors.map(c => COLOR_SWATCHES[c] || '#94a3b8');
+  const ytdTotals = salesColorTotals(activeProduct, null);
+  const chY = renderPieChart('colorPieYTDChart', labels, bucket.colors.map(c => ytdTotals[c] || 0), sliceColors);
+  if (chY) salesCharts.colorPieYTD = chY;
+
+  const titleEl = document.getElementById('colorPiePeriodTitle');
+  if (titleEl) titleEl.textContent = `색상별 비중 (최근 ${colorPiePeriod}일)`;
+  const periodTotals = salesColorTotals(activeProduct, colorPiePeriod);
+  const chP = renderPieChart('colorPiePeriodChart', labels, bucket.colors.map(c => periodTotals[c] || 0), sliceColors);
+  if (chP) salesCharts.colorPiePeriod = chP;
+}
+
+// 실판매(색상/플랫폼) 섹션 전체를 총괄한다. 데이터가 없는 제품은 관련 카드를 통째로 숨기고,
+// 색상이 없는 제품(킥프레임)은 색상 비중 카드 줄만 숨긴다.
+function renderSalesSection() {
+  const row = document.getElementById('platformCardsRow');
+  const monthlyCard = document.getElementById('salesMonthlyCard');
+  const colorRow = document.getElementById('colorCompRow');
+  const bucket = STATE.sales?.data?.[activeProduct];
+  if (!bucket || bucket.daily.length === 0) {
+    if (row) row.style.display = 'none';
+    if (monthlyCard) monthlyCard.style.display = 'none';
+    if (colorRow) colorRow.style.display = 'none';
+    destroySalesChart('platPie'); destroySalesChart('colorPieYTD'); destroySalesChart('colorPiePeriod');
+    ['platCompOwn', 'platCompNaver', 'platCompMmall'].forEach(destroySalesChart);
+    return;
+  }
+  if (row) row.style.display = '';
+  if (monthlyCard) monthlyCard.style.display = '';
+  if (colorRow) colorRow.style.display = bucket.colors.length > 0 ? '' : 'none';
+
+  renderPlatformPie();
+  renderPlatformComparison();
+  renderSalesMonthlyTable();
+  if (bucket.colors.length > 0) renderColorComposition();
+}
+
+// 개별 제품 탭 전용: 최근 30일 일별 판매량(전환수 또는 M몰 판매수량)을 세로 막대그래프로 표시.
+// 통합/자사몰/네이버는 기존 노출·전환 시트 데이터를, M몰은 실판매 시트의 M몰 컬럼 합계를 사용한다.
 function renderDailySalesChart() {
   destroyChart('dailySales');
   const canvas = document.getElementById('chartDailySales');
   if (!canvas) return;
   const colors = getThemeColors();
-  const channelLabel = dailySalesChannel === 'own' ? '자사몰' : dailySalesChannel === 'naver' ? '네이버' : '통합';
+  const channelLabel = dailySalesChannel === 'own' ? '자사몰' : dailySalesChannel === 'naver' ? '네이버' : dailySalesChannel === 'mmall' ? 'M몰' : '통합';
   document.getElementById('dailySalesTitle').textContent = `최근 30일 일별 판매량 (${channelLabel})`;
-  const series = buildDailySalesSeries(activeProduct, 30, dailySalesChannel);
+  const series = dailySalesChannel === 'mmall'
+    ? salesPlatformDailySeries(activeProduct, 30).map(r => ({ date: r.date, conversion: r.mmall }))
+    : buildDailySalesSeries(activeProduct, 30, dailySalesChannel);
   const labels = series.map(r => fmtMD(r.date));
   const values = series.map(r => r.conversion);
   const validValues = values.filter(v => v !== null && v !== undefined);
@@ -1916,6 +2335,7 @@ function renderAll() {
 
   renderKPIs();
   renderCharts();
+  renderSalesSection();
   renderDailySalesChart();
   renderDailyRateChart();
   renderDailyExposureChart();
@@ -1969,6 +2389,33 @@ document.getElementById('dailyExposureChannelToggle').addEventListener('click', 
   btn.classList.add('active');
   dailyExposureChannel = btn.dataset.channel;
   renderDailyExposureChart();
+});
+
+document.getElementById('platPieToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#platPieToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  platPiePeriod = parseInt(btn.dataset.period, 10);
+  renderPlatformPie();
+});
+
+document.getElementById('platCompToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#platCompToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  platCompPeriod = parseInt(btn.dataset.period, 10);
+  renderPlatformComparison();
+});
+
+document.getElementById('colorPiePeriodToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#colorPiePeriodToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  colorPiePeriod = parseInt(btn.dataset.period, 10);
+  renderColorComposition();
 });
 
 /* ========================= 테마 (다크/라이트) ========================= */
