@@ -32,17 +32,20 @@
     background:var(--bg); color:var(--text); transition:background .15s,color .15s;
   }
   header{
-    padding:24px 32px; background:linear-gradient(135deg,#1f2937,#0b0f16); color:#fff;
+    padding:24px 32px; background:var(--bg); color:var(--text);
+    border-bottom:1px solid var(--border);
     display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;
+    transition:background .15s,color .15s,border-color .15s;
   }
-  header h1{margin:0 0 4px; font-size:22px;}
-  header p{margin:0; color:#cbd5e1; font-size:13px;}
+  header h1{margin:0 0 4px; font-size:22px; color:var(--text);}
+  header p{margin:0; color:var(--sub); font-size:13px;}
   #themeToggle, #openSheetBtn, #refreshBtn{
-    padding:8px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.3);
-    background:rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:13px; font-weight:600;
+    padding:8px 14px; border-radius:20px; border:1px solid var(--border);
+    background:var(--card); color:var(--text); cursor:pointer; font-size:13px; font-weight:600;
     white-space:nowrap; text-decoration:none; display:inline-block;
+    transition:background .15s,color .15s,border-color .15s;
   }
-  #themeToggle:hover, #openSheetBtn:hover, #refreshBtn:hover{background:rgba(255,255,255,0.18);}
+  #themeToggle:hover, #openSheetBtn:hover, #refreshBtn:hover{background:var(--hover-bg);}
   #openSheetBtn.disabled{opacity:0.4; cursor:not-allowed; pointer-events:none;}
   #refreshBtn:disabled{opacity:0.5; cursor:default;}
   #refreshBtn .spin{display:inline-block;}
