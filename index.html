@@ -154,7 +154,7 @@
 <header>
   <div>
     <h1>제품별 성과 대시보드</h1>
-    <p>2026 자사몰 &amp; 네이버 · 노출/담김/전환 데이터 기반 주간 분석</p>
+    <p>2026 자사몰 &amp; 네이버 · 노출/전환 데이터 기반 주간 분석</p>
   </div>
   <div style="display:flex; gap:8px; align-items:center;">
     <a id="openSheetBtn" href="#" target="_blank" rel="noopener noreferrer">📊 스프레드시트 열기</a>
@@ -302,17 +302,6 @@
       <div class="chart-box"><canvas id="chartConvRate"></canvas></div>
     </div>
 
-    <div class="two-col" id="ownRateSection">
-      <div class="card">
-        <h2>담김율 추이 (자사몰)</h2>
-        <div class="chart-box"><canvas id="chartAddRate"></canvas></div>
-      </div>
-      <div class="card">
-        <h2>판매율 추이 (자사몰, 전환수 ÷ 담김수)</h2>
-        <div class="chart-box"><canvas id="chartSellRate"></canvas></div>
-      </div>
-    </div>
-
     <div class="card">
       <h2>주차별 데이터 테이블 (전체 채널)</h2>
       <p id="weeklyTableCaption" style="font-size:12px; color:var(--sub); margin:0 0 10px;"></p>
@@ -330,7 +319,7 @@
       3) 탭(시트) 이름이 <code>CONFIG.OWN_SHEET_NAME</code> / <code>CONFIG.NAVER_SHEET_NAME</code>과 정확히 일치하는지 확인합니다.<br>
       4) 파일을 다시 열면 구글 시트에서 실시간으로 데이터를 불러옵니다.<br><br>
       <b>범위/기간을 별도로 알려주실 필요는 없습니다.</b> 1월 1일부터 12월 31일까지, 그리고 앞으로 늘어나는 데이터까지 시트에 있는 만큼 자동으로 읽어서 주차/월을 계산합니다.<br><br>
-      <b>제품(열) 배치:</b> 한 행에 제품명(예: 킥프레임, PH 스탠드 등), 그 아래 열 이름 행(일자/노출수/담김수/전환수/담김율/전환율/판매율), 그 아래 일자별 데이터 순으로 오른쪽으로 나열되면 자동 인식합니다. 제품명 행과 열 이름 행 사이에 빈 줄이 있거나, 제품 블록 사이에 빈 열이 있어도(예: A~G열=제품1, H열=공백, I~O열=제품2) 문제없이 인식합니다.
+      <b>제품(열) 배치:</b> 한 행에 제품명(예: 킥프레임, PH 스탠드 등), 그 아래 열 이름 행(일자/노출수/전환수/전환율), 그 아래 일자별 데이터 순으로 오른쪽으로 나열되면 자동 인식합니다. 제품명 행과 열 이름 행 사이에 빈 줄이 있거나, 제품 블록 사이에 빈 열이 있어도(예: A~G열=제품1, H열=공백, I~O열=제품2) 문제없이 인식합니다.
     </div>
   </details>
 
@@ -939,11 +928,9 @@ function weekMeta(wi) {
 }
 
 function computeRates(bucket) {
-  if (!bucket) return { convRate: null, addRate: null, sellRate: null };
+  if (!bucket) return { convRate: null };
   const convRate = bucket.exposure > 0 ? bucket.conversion / bucket.exposure : null;
-  const addRate = bucket.exposure > 0 ? bucket.add / bucket.exposure : null;
-  const sellRate = bucket.add > 0 ? bucket.conversion / bucket.add : null;
-  return { convRate, addRate, sellRate };
+  return { convRate };
 }
 
 // ===== 통합(combined) 계산 헬퍼 =====
@@ -969,17 +956,6 @@ function weekConvRate(channel, wi) {
   const conv = weekAvg(channel, wi, 'conversion');
   return (exp && exp > 0) ? conv / exp : null;
 }
-function weekAddRate(channel, wi) {
-  const exp = weekAvg(channel, wi, 'exposure');
-  const add = weekAvg(channel, wi, 'add');
-  return (exp && exp > 0) ? add / exp : null;
-}
-function weekSellRate(channel, wi) {
-  const add = weekAvg(channel, wi, 'add');
-  const conv = weekAvg(channel, wi, 'conversion');
-  return (add && add > 0) ? conv / add : null;
-}
-
 function monthChannelAvg(channel, mk, key) {
   const b = STATE.monthlyAgg[activeProduct]?.[channel]?.[mk];
   return (b && b.days > 0) ? (b[key] || 0) / b.days : null;
@@ -997,16 +973,6 @@ function monthConvRate(channel, mk) {
   const exp = monthAvg(channel, mk, 'exposure');
   const conv = monthAvg(channel, mk, 'conversion');
   return (exp && exp > 0) ? conv / exp : null;
-}
-function monthAddRate(channel, mk) {
-  const exp = monthAvg(channel, mk, 'exposure');
-  const add = monthAvg(channel, mk, 'add');
-  return (exp && exp > 0) ? add / exp : null;
-}
-function monthSellRate(channel, mk) {
-  const add = monthAvg(channel, mk, 'add');
-  const conv = monthAvg(channel, mk, 'conversion');
-  return (add && add > 0) ? conv / add : null;
 }
 
 // 표시용 통합 버킷(주간/월간 데이터 테이블에서 노출수·전환수 "합계"를 그대로 보여줄 때 사용).
@@ -1134,11 +1100,9 @@ function channelTotals(channel) {
 }
 
 function rangeRates(bucket) {
-  if (!bucket) return { convRate: null, addRate: null, sellRate: null };
+  if (!bucket) return { convRate: null };
   const convRate = bucket.exposure > 0 ? bucket.conversion / bucket.exposure : null;
-  const addRate = bucket.exposure > 0 ? bucket.add / bucket.exposure : null;
-  const sellRate = bucket.add > 0 ? bucket.conversion / bucket.add : null;
-  return { convRate, addRate, sellRate };
+  return { convRate };
 }
 
 // 건수(개) 차이 기반 델타 표기 — 전환수처럼 "몇 건 늘었다/줄었다"로 보여줄 때 사용 (% 대신 절대 건수)
@@ -1737,33 +1701,6 @@ function renderCharts() {
     type: 'line', data: { labels: monthLabels, datasets: convDatasets }, options: chartOptions(colors, true)
   });
 
-  // 담김율/판매율은 자사몰에만 존재하는 지표라 자사몰 탭에서만 별도 차트로 표시 (여기는 그대로 주간 기준 유지)
-  const weeks = completeWeeks();
-  const weekLabels = weeks.map(w => weekMeta(w).short);
-  const ownSection = document.getElementById('ownRateSection');
-  if (activeChannel === 'own') {
-    ownSection.style.display = '';
-    destroyChart('addRate');
-    destroyChart('sellRate');
-    const overallAdd = overallRate('own', 'add', 'exposure');
-    const overallSell = overallRate('own', 'conversion', 'add');
-    const addData = weeks.map(w => { const r = weekAddRate('own', w); return r !== null ? r * 100 : null; });
-    const sellData = weeks.map(w => { const r = weekSellRate('own', w); return r !== null ? r * 100 : null; });
-    const addDatasets = [{ label: '담김율', data: addData, borderColor: '#a78bfa', backgroundColor: '#a78bfa', tension: 0.25 }];
-    if (overallAdd !== null) addDatasets.push(avgLineDataset(overallAdd * 100, `1월~현재 평균 (${pct(overallAdd)})`, '#94a3b8', weeks.length));
-    const sellDatasets = [{ label: '판매율', data: sellData, borderColor: '#22c55e', backgroundColor: '#22c55e', tension: 0.25 }];
-    if (overallSell !== null) sellDatasets.push(avgLineDataset(overallSell * 100, `1월~현재 평균 (${pct(overallSell)})`, '#94a3b8', weeks.length));
-    charts.addRate = new Chart(document.getElementById('chartAddRate'), {
-      type: 'line', data: { labels: weekLabels, datasets: addDatasets }, options: chartOptions(colors, true)
-    });
-    charts.sellRate = new Chart(document.getElementById('chartSellRate'), {
-      type: 'line', data: { labels: weekLabels, datasets: sellDatasets }, options: chartOptions(colors, true)
-    });
-  } else {
-    ownSection.style.display = 'none';
-    destroyChart('addRate');
-    destroyChart('sellRate');
-  }
 }
 
 // 통합 열은 항상 자사몰 자체 주간 일평균 + 네이버 자체 주간 일평균을 더한 값이다 (weekCombinedAvg 사용).
@@ -1788,7 +1725,7 @@ function renderTable() {
   if (caption) caption.textContent = '🔵 통합 일평균 노출수 최고 · 🟣 통합 일평균 전환수 최고 · 🟢 통합 전환율 최고 (지표별로 최고 주가 다를 수 있어 색상을 다르게 표시했어요)';
 
   let head = `<thead><tr><th>주차</th>
-    <th>자사몰 노출</th><th>자사몰 담김</th><th>자사몰 전환</th><th>담김율</th><th>전환율</th><th>판매율</th>
+    <th>자사몰 노출</th><th>자사몰 전환</th><th>자사몰 전환율</th>
     <th>네이버 노출</th><th>네이버 전환</th><th>네이버 전환율</th>
     <th>통합 일평균 노출</th><th>통합 일평균 전환</th><th>통합 전환율</th></tr></thead>`;
   let body = '<tbody>';
@@ -1804,11 +1741,8 @@ function renderTable() {
     body += `<tr class="${isAnyPeak ? 'peak-row' : ''}">
       <td>${weekMeta(w).label}</td>
       <td>${o ? numFmt(o.exposure) : '-'}</td>
-      <td>${o ? numFmt(o.add) : '-'}</td>
       <td>${o ? numFmt(o.conversion) : '-'}</td>
-      <td>${o ? pct(or.addRate) : '-'}</td>
       <td>${o ? pct(or.convRate) : '-'}</td>
-      <td>${o ? pct(or.sellRate) : '-'}</td>
       <td>${n ? numFmt(n.exposure) : '-'}</td>
       <td>${n ? numFmt(n.conversion) : '-'}</td>
       <td>${n ? pct(nr.convRate) : '-'}</td>
@@ -1896,9 +1830,8 @@ function renderMonthlyComparison() {
   const months = STATE.months;
   if (months.length === 0) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
 
-  const showOwnExtras = activeChannel === 'own';
   const curMonthKey = monthKeyOf(new Date());
-  let head = `<thead><tr><th>월</th><th>일평균 노출수</th><th>일평균 전환수</th><th>전환율</th>${showOwnExtras ? '<th>일평균 담김수</th><th>담김율</th><th>판매율</th>' : ''}</tr></thead>`;
+  let head = `<thead><tr><th>월</th><th>일평균 노출수</th><th>일평균 전환수</th><th>전환율</th></tr></thead>`;
   let body = '<tbody>';
   let rowCount = 0;
   months.forEach(mk => {
@@ -1907,16 +1840,12 @@ function renderMonthlyComparison() {
     if (avgExp === null && avgConv === null) return; // 데이터가 실제로 기재된 달까지만 표시
     rowCount++;
     const rate = monthConvRate(activeChannel, mk);
-    const avgAdd = showOwnExtras ? monthAvg('own', mk, 'add') : null;
-    const addRate = showOwnExtras ? monthAddRate('own', mk) : null;
-    const sellRate = showOwnExtras ? monthSellRate('own', mk) : null;
     const isCurrent = mk === curMonthKey;
     body += `<tr class="${isCurrent ? 'current-row' : ''}">
       <td>${monthLabel(mk)}${isCurrent ? ' (현재)' : ''}</td>
       <td>${avgExp !== null ? numFmt(avgExp) : '-'}</td>
       <td>${avgConv !== null ? numFmt(avgConv) : '-'}</td>
       <td>${rate !== null ? pct(rate) : '-'}</td>
-      ${showOwnExtras ? `<td>${avgAdd !== null ? numFmt(avgAdd) : '-'}</td><td>${addRate !== null ? pct(addRate) : '-'}</td><td>${sellRate !== null ? pct(sellRate) : '-'}</td>` : ''}
     </tr>`;
   });
   body += '</tbody>';
