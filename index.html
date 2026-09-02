@@ -158,7 +158,7 @@
   [data-theme="light"] .custom-period-inputs input[type="date"]{color-scheme:light;}
   #applyCustomPeriod{padding:8px 16px; border-radius:7px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:700; cursor:pointer; white-space:nowrap;}
   #customPeriodError{grid-column:1/-1; display:none; font-size:12px; color:var(--bad); margin-top:-4px;}
-  @media (max-width:820px){.custom-period-grid{grid-template-columns:1fr;} #applyCustomPeriod{width:100%;} .custom-period-inputs{grid-template-columns:1fr;} .custom-period-inputs span{text-align:center;}}
+  @media (max-width:820px){.custom-period-grid{grid-template-columns:1fr;} #applyCustomPeriod, #applyProductCustomPeriod{width:100%;} .custom-period-inputs{grid-template-columns:1fr;} .custom-period-inputs span{text-align:center;}}
 </style>
 </head>
 <body>
@@ -219,6 +219,32 @@
   </div>
 
   <div id="productDetail">
+    <div class="card" id="productPeriodCard">
+      <div class="card-header-row" style="margin-bottom:10px;">
+        <h2 style="margin:0;">조회 기간</h2>
+        <div class="channel-toggle compact" id="productPeriodToggle" style="margin-bottom:0;">
+          <button data-period="7" class="active">최근 7일</button>
+          <button data-period="14">최근 14일</button>
+          <button data-period="30">최근 30일</button>
+          <button data-period="custom">직접선택</button>
+        </div>
+      </div>
+      <div id="productCustomPeriodPanel" class="custom-period-panel" style="margin:0;">
+        <div class="custom-period-grid" style="grid-template-columns:1fr auto;">
+          <div class="custom-period-group">
+            <div class="custom-period-label">조회 기간</div>
+            <div class="custom-period-inputs">
+              <input type="date" id="productCustomStart" aria-label="조회 시작일">
+              <span>~</span>
+              <input type="date" id="productCustomEnd" aria-label="조회 종료일">
+            </div>
+          </div>
+          <button id="applyProductCustomPeriod" type="button">기간 적용</button>
+        </div>
+        <div id="productCustomPeriodError"></div>
+      </div>
+    </div>
+
     <div id="kpiGrid" class="kpi-grid"></div>
 
     <div class="card">
@@ -313,7 +339,7 @@
     </div>
 
     <div class="card">
-      <h2>최근 7일 · 14일 · 30일 비교 (직전 동일 기간 대비)</h2>
+      <h2>선택 기간 비교 (직전 동일 기간 대비)</h2>
       <div id="rollingBox"></div>
     </div>
 
@@ -938,10 +964,12 @@ let insightCharts = {};
 let rollingCharts = {};
 let peakCharts = {};
 let salesCharts = {};
-// 색상/플랫폼 판매 카드들의 기간 선택 상태 (제품 탭을 넘나들며 공유되는 전역 상태 - 기존 dailySalesChannel 등과 동일한 패턴).
-let platPiePeriod = 7;    // 플랫폼 비중 파이차트: 7 | 14 | 30
-let platCompPeriod = 7;   // 플랫폼 일평균 비교: 7 | 14 | 30
-let colorPiePeriod = 7;   // 색상 비중(기간별) 파이차트: 7 | 14 | 30
+// 개별 제품 탭의 모든 기간형 카드는 하나의 공통 기간 상태를 사용한다.
+let productPeriod = 7; // 7 | 14 | 30 | 'custom'
+let productCustomPeriod = { start: null, end: null };
+let platPiePeriod = 7;
+let platCompPeriod = 7;
+let colorPiePeriod = 7
 const PLATFORM_COLORS = { own: '#3b82f6', naver: '#22c55e', mmall: '#9ca3af' };
 const COLOR_SWATCHES = { '실버': '#cbd5e1', '블랙': '#334155', '그린': '#22c55e' };
 
@@ -1401,6 +1429,44 @@ function recentCalendarWindow(days, offsetPeriods) {
 
 // product의 색상별 원자료를 날짜별로 합산해 플랫폼(자사몰/네이버/M몰) 시계열로 만든다.
 // days가 없으면 전체(YTD) 기간을, 있으면 "어제부터 거슬러 올라간 달력 기준 N일" 구간만 반환한다.
+function normalizeDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function inclusiveDays(start, end) { return Math.round((normalizeDay(end) - normalizeDay(start)) / 86400000) + 1; }
+function productCurrentWindow() {
+  if (productPeriod === 'custom' && productCustomPeriod.start && productCustomPeriod.end) return { start: normalizeDay(productCustomPeriod.start), end: normalizeDay(productCustomPeriod.end), label: `${fmtMD(productCustomPeriod.start)}~${fmtMD(productCustomPeriod.end)}` };
+  const days = Number(productPeriod) || 7;
+  const w = recentCalendarWindow(days, 0);
+  return { ...w, label: `최근 ${days}일` };
+}
+function productPreviousWindow() {
+  const cur = productCurrentWindow();
+  const days = inclusiveDays(cur.start, cur.end);
+  const end = new Date(cur.start); end.setDate(end.getDate() - 1);
+  const start = new Date(end); start.setDate(start.getDate() - (days - 1));
+  return { start, end, label: `직전 ${days}일` };
+}
+function filterByProductWindow(rows) { const w = productCurrentWindow(); return rows.filter(r => r.date >= w.start && r.date <= w.end); }
+function filterByRange(rows, start, end) { return rows.filter(r => r.date >= start && r.date <= end); }
+function productPeriodLabel() { return productCurrentWindow().label; }
+function syncProductPeriodButtons() {
+  const val = String(productPeriod);
+  document.querySelectorAll('#productPeriodToggle button').forEach(b => b.classList.toggle('active', b.dataset.period === val));
+  ['platPieToggle','platCompToggle','colorPiePeriodToggle'].forEach(id => {
+    document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle('active', val !== 'custom' && b.dataset.period === val));
+  });
+  document.getElementById('productCustomPeriodPanel')?.classList.toggle('open', productPeriod === 'custom');
+}
+function setProductPeriod(period) {
+  productPeriod = period === 'custom' ? 'custom' : parseInt(period, 10);
+  if (productPeriod !== 'custom') { platPiePeriod = productPeriod; platCompPeriod = productPeriod; colorPiePeriod = productPeriod; }
+  syncProductPeriodButtons();
+  renderProductPeriodLinkedSections();
+}
+function renderProductPeriodLinkedSections() {
+  if (!activeProduct || activeProduct === OVERVIEW_KEY) return;
+  renderPlatformPie(); renderPlatformComparison(); renderColorComposition();
+  renderDailySalesChart(); renderDailyRateChart(); renderDailyExposureChart(); renderRollingComparison();
+}
+
 function salesPlatformDailySeries(product, days) {
   const bucket = STATE.sales?.data?.[product];
   if (!bucket) return [];
@@ -1410,6 +1476,7 @@ function salesPlatformDailySeries(product, days) {
     return { date: d.date, own, naver, mmall };
   });
   if (!days) return merged;
+  if (days === 'product') return filterByProductWindow(merged);
   const { start, end } = recentCalendarWindow(days, 0);
   return merged.filter(r => r.date >= start && r.date <= end);
 }
@@ -1419,13 +1486,15 @@ function salesPlatformDailySeries(product, days) {
 function salesPlatformRollingCompare(product, days) {
   const series = salesPlatformDailySeries(product, null);
   if (series.length === 0) return null;
-  function avgInWindow(offsetPeriods) {
-    const { start, end } = recentCalendarWindow(days, offsetPeriods);
-    const rows = series.filter(r => r.date >= start && r.date <= end);
+  let curW, prevW, divisor;
+  if (days === 'product') { curW = productCurrentWindow(); prevW = productPreviousWindow(); divisor = inclusiveDays(curW.start, curW.end); }
+  else { curW = recentCalendarWindow(days,0); prevW = recentCalendarWindow(days,1); divisor = days; }
+  function avgInWindow(w) {
+    const rows = filterByRange(series, w.start, w.end);
     const sum = rows.reduce((a, r) => ({ own: a.own + r.own, naver: a.naver + r.naver, mmall: a.mmall + r.mmall }), { own: 0, naver: 0, mmall: 0 });
-    return { own: sum.own / days, naver: sum.naver / days, mmall: sum.mmall / days };
+    return { own: sum.own / divisor, naver: sum.naver / divisor, mmall: sum.mmall / divisor };
   }
-  return { cur: avgInWindow(0), prev: avgInWindow(1) };
+  return { cur: avgInWindow(curW), prev: avgInWindow(prevW), curWindow: curW, prevWindow: prevW };
 }
 
 // 색상별 총 판매수량(자사몰+네이버+M몰) 합계. days가 없으면 전체(26년 누적) 기간을, 있으면 "어제부터 거슬러
@@ -1435,8 +1504,8 @@ function salesColorTotals(product, days) {
   if (!bucket) return {};
   let rows = bucket.daily;
   if (days) {
-    const { start, end } = recentCalendarWindow(days, 0);
-    rows = rows.filter(d => d.date >= start && d.date <= end);
+    if (days === 'product') rows = filterByProductWindow(rows);
+    else { const { start, end } = recentCalendarWindow(days, 0); rows = rows.filter(d => d.date >= start && d.date <= end); }
   }
   const totals = {};
   bucket.colors.forEach(c => { totals[c] = 0; });
@@ -1484,6 +1553,7 @@ function buildDailySalesSeries(product, days, channel) {
     map.set(k, cur);
   });
   const sorted = [...map.values()].sort((a, b) => a.date - b.date);
+  if (days === 'product') return filterByProductWindow(sorted);
   return sorted.slice(-days);
 }
 
@@ -1507,8 +1577,8 @@ function renderPlatformPie() {
   const canvas = document.getElementById('platPieChart');
   if (!canvas) return;
   const titleEl = document.getElementById('platPieTitle');
-  if (titleEl) titleEl.textContent = `플랫폼별 판매 비중 (최근 ${platPiePeriod}일)`;
-  const series = salesPlatformDailySeries(activeProduct, platPiePeriod);
+  if (titleEl) titleEl.textContent = `플랫폼별 판매 비중 (${productPeriodLabel()})`;
+  const series = salesPlatformDailySeries(activeProduct, 'product');
   const totals = series.reduce((a, r) => ({ own: a.own + r.own, naver: a.naver + r.naver, mmall: a.mmall + r.mmall }), { own: 0, naver: 0, mmall: 0 });
   const chart = renderPieChart('platPieChart', ['자사몰', '네이버', 'M몰'], [totals.own, totals.naver, totals.mmall], [PLATFORM_COLORS.own, PLATFORM_COLORS.naver, PLATFORM_COLORS.mmall]);
   if (chart) salesCharts.platPie = chart;
@@ -1520,10 +1590,11 @@ function renderPlatformComparison() {
   const box = document.getElementById('platCompBox');
   if (!box) return;
   const titleEl = document.getElementById('platCompTitle');
-  if (titleEl) titleEl.textContent = `플랫폼별 일평균 판매수량 비교 (최근 ${platCompPeriod}일 vs 직전 ${platCompPeriod}일)`;
-  const cmp = salesPlatformRollingCompare(activeProduct, platCompPeriod);
+  const curW = productCurrentWindow(), prevW = productPreviousWindow();
+  if (titleEl) titleEl.textContent = `플랫폼별 일평균 판매수량 비교 (${curW.label} vs ${prevW.label})`;
+  const cmp = salesPlatformRollingCompare(activeProduct, 'product');
   if (!cmp) { box.innerHTML = '<div class="empty">데이터가 없습니다</div>'; return; }
-  const label = `직전 ${platCompPeriod}일`;
+  const label = prevW.label;
   const dOwn = deltaOf(cmp.cur.own, cmp.prev.own, false, label);
   const dNaver = deltaOf(cmp.cur.naver, cmp.prev.naver, false, label);
   const dMmall = deltaOf(cmp.cur.mmall, cmp.prev.mmall, false, label);
@@ -1532,7 +1603,7 @@ function renderPlatformComparison() {
     <div class="overview-metric"><div class="metric-label">네이버</div><div class="chart-box small"><canvas id="platCompNaverCanvas"></canvas></div><div class="delta ${dNaver.cls}">${dNaver.text}</div></div>
     <div class="overview-metric"><div class="metric-label">M몰</div><div class="chart-box small"><canvas id="platCompMmallCanvas"></canvas></div><div class="delta ${dMmall.cls}">${dMmall.text}</div></div>
   </div>`;
-  const curLabel = `최근 ${platCompPeriod}일`, prevLabel = `직전 ${platCompPeriod}일`;
+  const curLabel = curW.label, prevLabel = prevW.label;
   let ch = miniBarChart('platCompOwnCanvas', [prevLabel, curLabel], [cmp.prev.own, cmp.cur.own], dOwn.cls, v => numFmt(v));
   if (ch) salesCharts.platCompOwn = ch;
   ch = miniBarChart('platCompNaverCanvas', [prevLabel, curLabel], [cmp.prev.naver, cmp.cur.naver], dNaver.cls, v => numFmt(v));
@@ -1571,8 +1642,8 @@ function renderColorComposition() {
   if (chY) salesCharts.colorPieYTD = chY;
 
   const titleEl = document.getElementById('colorPiePeriodTitle');
-  if (titleEl) titleEl.textContent = `색상별 비중 (최근 ${colorPiePeriod}일)`;
-  const periodTotals = salesColorTotals(activeProduct, colorPiePeriod);
+  if (titleEl) titleEl.textContent = `색상별 비중 (${productPeriodLabel()})`;
+  const periodTotals = salesColorTotals(activeProduct, 'product');
   const chP = renderPieChart('colorPiePeriodChart', labels, bucket.colors.map(c => periodTotals[c] || 0), sliceColors);
   if (chP) salesCharts.colorPiePeriod = chP;
 }
@@ -1619,10 +1690,11 @@ function renderDailySalesChart() {
   if (!canvas) return;
   const colors = getThemeColors();
   const channelLabel = dailySalesChannel === 'own' ? '자사몰' : dailySalesChannel === 'naver' ? '네이버' : dailySalesChannel === 'mmall' ? 'M몰' : '통합';
-  document.getElementById('dailySalesTitle').textContent = `최근 30일 일별 판매량 (${channelLabel})`;
+  const periodLabel = productPeriodLabel();
+  document.getElementById('dailySalesTitle').textContent = `${periodLabel} 일별 판매량 (${channelLabel})`;
   const series = dailySalesChannel === 'mmall'
-    ? salesPlatformDailySeries(activeProduct, 30).map(r => ({ date: r.date, conversion: r.mmall }))
-    : buildDailySalesSeries(activeProduct, 30, dailySalesChannel);
+    ? salesPlatformDailySeries(activeProduct, 'product').map(r => ({ date: r.date, conversion: r.mmall }))
+    : buildDailySalesSeries(activeProduct, 'product', dailySalesChannel);
   const labels = series.map(r => fmtMD(r.date));
   const values = series.map(r => r.conversion);
   const validValues = values.filter(v => v !== null && v !== undefined);
@@ -1633,7 +1705,7 @@ function renderDailySalesChart() {
     backgroundColor: '#22c55e', borderRadius: 4, maxBarThickness: 26,
     _showLabels: true, _labelColor: colors.text, _labelFont: '9px sans-serif', _labelFormat: v => numFmt(v)
   }];
-  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${numFmt(avg)}건)`, labels.length, v => numFmt(v)));
+  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `${periodLabel} 평균 (${numFmt(avg)}건)`, labels.length, v => numFmt(v)));
   charts.dailySales = new Chart(canvas, {
     type: 'bar',
     data: { labels, datasets },
@@ -1648,8 +1720,9 @@ function renderDailyRateChart() {
   if (!canvas) return;
   const colors = getThemeColors();
   const channelLabel = dailyRateChannel === 'own' ? '자사몰' : dailyRateChannel === 'naver' ? '네이버' : '통합';
-  document.getElementById('dailyRateTitle').textContent = `최근 30일 일별 전환율 (${channelLabel})`;
-  const series = buildDailySalesSeries(activeProduct, 30, dailyRateChannel);
+  const periodLabel = productPeriodLabel();
+  document.getElementById('dailyRateTitle').textContent = `${periodLabel} 일별 전환율 (${channelLabel})`;
+  const series = buildDailySalesSeries(activeProduct, 'product', dailyRateChannel);
   const labels = series.map(r => fmtMD(r.date));
   const values = series.map(r => r.exposure > 0 ? (r.conversion / r.exposure) * 100 : null);
   const totalExp = series.reduce((a, r) => a + (r.exposure || 0), 0);
@@ -1662,7 +1735,7 @@ function renderDailyRateChart() {
     _showLabels: true, _labelColor: '#3b82f6', _labelFont: '10px sans-serif', _labelOffset: 8,
     _labelFormat: v => v.toFixed(1) + '%'
   }];
-  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${avg.toFixed(1)}%)`, labels.length, v => v.toFixed(1) + '%'));
+  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `${periodLabel} 평균 (${avg.toFixed(1)}%)`, labels.length, v => v.toFixed(1) + '%'));
   charts.dailyRate = new Chart(canvas, {
     type: 'line',
     data: { labels, datasets },
@@ -1677,8 +1750,9 @@ function renderDailyExposureChart() {
   if (!canvas) return;
   const colors = getThemeColors();
   const channelLabel = dailyExposureChannel === 'own' ? '자사몰' : dailyExposureChannel === 'naver' ? '네이버' : '통합';
-  document.getElementById('dailyExposureTitle').textContent = `최근 30일 일별 노출량 (${channelLabel})`;
-  const series = buildDailySalesSeries(activeProduct, 30, dailyExposureChannel);
+  const periodLabel = productPeriodLabel();
+  document.getElementById('dailyExposureTitle').textContent = `${periodLabel} 일별 노출량 (${channelLabel})`;
+  const series = buildDailySalesSeries(activeProduct, 'product', dailyExposureChannel);
   const labels = series.map(r => fmtMD(r.date));
   const values = series.map(r => r.exposure);
   const validValues = values.filter(v => v !== null && v !== undefined);
@@ -1689,7 +1763,7 @@ function renderDailyExposureChart() {
     backgroundColor: '#f59e0b', borderRadius: 4, maxBarThickness: 26,
     _showLabels: true, _labelColor: colors.text, _labelFont: '9px sans-serif', _labelFormat: v => numFmt(v)
   }];
-  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `최근 30일 평균 (${numFmt(avg)})`, labels.length, v => numFmt(v)));
+  if (avg !== null) datasets.push(whiteAvgLineDataset(avg, `${periodLabel} 평균 (${numFmt(avg)})`, labels.length, v => numFmt(v)));
   charts.dailyExposure = new Chart(canvas, {
     type: 'bar',
     data: { labels, datasets },
@@ -1800,67 +1874,28 @@ function renderRollingComparison() {
   const hasOwn = (STATE.daily[activeProduct]?.own || []).length > 0;
   const hasNaver = (STATE.daily[activeProduct]?.naver || []).length > 0;
   if (!hasOwn && !hasNaver) { box.innerHTML = ''; return; }
-
-  const grid = document.createElement('div');
-  grid.className = 'overview-grid';
-  box.innerHTML = '';
-  box.appendChild(grid);
-
-  [7, 14, 30].forEach(days => {
-    const curAvgExp = rollingAvg(activeChannel, days, 0, 'exposure');
-    const curAvgConv = rollingAvg(activeChannel, days, 0, 'conversion');
-    const curRate = rollingRate(activeChannel, days, 0, 'conversion', 'exposure');
-
-    // 직전 기간이 이 창(window)만큼 완전히 채워져 있을 때만 증감을 계산 (부분 데이터로 인한 왜곡 방지)
-    const prevFilled = rollingWindowDays(activeChannel, days, 1) === days;
-    const prevAvgExp = prevFilled ? rollingAvg(activeChannel, days, 1, 'exposure') : null;
-    const prevAvgConv = prevFilled ? rollingAvg(activeChannel, days, 1, 'conversion') : null;
-    const prevRate = prevFilled ? rollingRate(activeChannel, days, 1, 'conversion', 'exposure') : null;
-
-    const dExp = deltaOf(curAvgExp, prevAvgExp, false, `직전 ${days}일`);
-    const dConv = deltaOf(curAvgConv, prevAvgConv, false, `직전 ${days}일`);
-    const dRate = deltaOf(curRate, prevRate, true, `직전 ${days}일`);
-
-    const curLabel = `최근 ${days}일`, prevLabel = `직전 ${days}일`;
-    const hasAny = curAvgExp !== null || prevAvgExp !== null;
-    const expId = `rollExp${days}`, convId = `rollConv${days}`, rateId = `rollRate${days}`;
-
-    const block = document.createElement('div');
-    block.className = 'overview-product';
-    block.innerHTML = hasAny ? `
-      <h3>${curLabel} vs ${prevLabel}</h3>
-      <div class="overview-metrics">
-        <div class="overview-metric">
-          <div class="metric-label">일평균 노출수</div>
-          <div class="chart-box small"><canvas id="${expId}"></canvas></div>
-          <div class="delta ${dExp.cls}">${dExp.text}</div>
-        </div>
-        <div class="overview-metric">
-          <div class="metric-label">일평균 전환수</div>
-          <div class="chart-box small"><canvas id="${convId}"></canvas></div>
-          <div class="delta ${dConv.cls}">${dConv.text}</div>
-        </div>
-        <div class="overview-metric">
-          <div class="metric-label">전환율</div>
-          <div class="chart-box small"><canvas id="${rateId}"></canvas></div>
-          <div class="delta ${dRate.cls}">${dRate.text}</div>
-        </div>
-      </div>` : `<h3>${curLabel} vs ${prevLabel}</h3><div class="empty">비교할 데이터가 부족합니다</div>`;
-    grid.appendChild(block);
-
-    if (hasAny) {
-      let ch = miniBarChart(expId, [prevLabel, curLabel], [prevAvgExp, curAvgExp], dExp.cls, v => numFmt(v));
-      if (ch) rollingCharts[expId] = ch;
-      ch = miniBarChart(convId, [prevLabel, curLabel], [prevAvgConv, curAvgConv], dConv.cls, v => numFmt(v));
-      if (ch) rollingCharts[convId] = ch;
-      ch = miniBarChart(rateId, [prevLabel, curLabel], [prevRate !== null ? prevRate * 100 : null, curRate !== null ? curRate * 100 : null], dRate.cls, v => v.toFixed(1) + '%');
-      if (ch) rollingCharts[rateId] = ch;
+  const curW = productCurrentWindow(), prevW = productPreviousWindow();
+  function avgRange(channel, w, key) {
+    if (channel === 'combined') {
+      const o = sumDailyRange(activeProduct,'own',w.start,w.end), n = sumDailyRange(activeProduct,'naver',w.start,w.end);
+      const days = inclusiveDays(w.start,w.end); return ((o?.[key]||0)+(n?.[key]||0))/days;
     }
-  });
+    const b = sumDailyRange(activeProduct,channel,w.start,w.end), days=inclusiveDays(w.start,w.end); return b ? (b[key]||0)/days : null;
+  }
+  const curAvgExp=avgRange(activeChannel,curW,'exposure'), prevAvgExp=avgRange(activeChannel,prevW,'exposure');
+  const curAvgConv=avgRange(activeChannel,curW,'conversion'), prevAvgConv=avgRange(activeChannel,prevW,'conversion');
+  const curRate=curAvgExp>0?curAvgConv/curAvgExp:null, prevRate=prevAvgExp>0?prevAvgConv/prevAvgExp:null;
+  const dExp=deltaOf(curAvgExp,prevAvgExp,false,prevW.label), dConv=deltaOf(curAvgConv,prevAvgConv,false,prevW.label), dRate=deltaOf(curRate,prevRate,true,prevW.label);
+  box.innerHTML=`<div class="overview-grid"><div class="overview-product"><h3>${curW.label} vs ${prevW.label}</h3><div class="overview-metrics">
+    <div class="overview-metric"><div class="metric-label">일평균 노출수</div><div class="chart-box small"><canvas id="rollExpGlobal"></canvas></div><div class="delta ${dExp.cls}">${dExp.text}</div></div>
+    <div class="overview-metric"><div class="metric-label">일평균 전환수</div><div class="chart-box small"><canvas id="rollConvGlobal"></canvas></div><div class="delta ${dConv.cls}">${dConv.text}</div></div>
+    <div class="overview-metric"><div class="metric-label">전환율</div><div class="chart-box small"><canvas id="rollRateGlobal"></canvas></div><div class="delta ${dRate.cls}">${dRate.text}</div></div>
+  </div></div></div>`;
+  rollingCharts.exp=miniBarChart('rollExpGlobal',[prevW.label,curW.label],[prevAvgExp,curAvgExp],dExp.cls,v=>numFmt(v));
+  rollingCharts.conv=miniBarChart('rollConvGlobal',[prevW.label,curW.label],[prevAvgConv,curAvgConv],dConv.cls,v=>numFmt(v));
+  rollingCharts.rate=miniBarChart('rollRateGlobal',[prevW.label,curW.label],[prevRate!==null?prevRate*100:null,curRate!==null?curRate*100:null],dRate.cls,v=>v.toFixed(1)+'%');
 }
 
-// 1월부터 데이터가 있는 마지막 달까지 월별로 일평균 지표를 나열한 표 (미래의 빈 달은 표시하지 않음)
-// 통합은 자사몰 월 일평균 + 네이버 월 일평균을 독립적으로 계산해 더한 값이다.
 function renderMonthlyComparison() {
   const box = document.getElementById('monthlyCompareBox');
   const months = STATE.months;
@@ -2474,6 +2509,7 @@ function renderAll() {
   document.getElementById('productDetail').style.display = isOverview ? 'none' : '';
   if (isOverview) { renderOverview(); return; }
 
+  syncProductPeriodButtons();
   renderKPIs();
   renderCharts();
   renderSalesSection();
@@ -2524,6 +2560,19 @@ document.getElementById('overviewChannelToggle').addEventListener('click', (e) =
   renderOverview();
 });
 
+document.getElementById('productPeriodToggle').addEventListener('click', (e) => {
+  const btn=e.target.closest('button'); if(!btn) return;
+  setProductPeriod(btn.dataset.period);
+});
+document.getElementById('applyProductCustomPeriod').addEventListener('click', () => {
+  const start=parseDateInput(document.getElementById('productCustomStart').value);
+  const end=parseDateInput(document.getElementById('productCustomEnd').value);
+  const err=document.getElementById('productCustomPeriodError');
+  let msg=''; if(!start||!end) msg='조회할 시작일과 종료일을 모두 선택해 주세요.'; else if(start>end) msg='시작일이 종료일보다 늦을 수 없습니다.';
+  if(msg){err.textContent=msg;err.style.display='block';return;} err.style.display='none';
+  productCustomPeriod={start,end}; productPeriod='custom'; syncProductPeriodButtons(); renderProductPeriodLinkedSections();
+});
+
 document.getElementById('dailySalesChannelToggle').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -2552,30 +2601,18 @@ document.getElementById('dailyExposureChannelToggle').addEventListener('click', 
 });
 
 document.getElementById('platPieToggle').addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  document.querySelectorAll('#platPieToggle button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  platPiePeriod = parseInt(btn.dataset.period, 10);
-  renderPlatformPie();
+  const btn = e.target.closest('button'); if (!btn) return;
+  setProductPeriod(btn.dataset.period);
 });
 
 document.getElementById('platCompToggle').addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  document.querySelectorAll('#platCompToggle button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  platCompPeriod = parseInt(btn.dataset.period, 10);
-  renderPlatformComparison();
+  const btn = e.target.closest('button'); if (!btn) return;
+  setProductPeriod(btn.dataset.period);
 });
 
 document.getElementById('colorPiePeriodToggle').addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  document.querySelectorAll('#colorPiePeriodToggle button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  colorPiePeriod = parseInt(btn.dataset.period, 10);
-  renderColorComposition();
+  const btn = e.target.closest('button'); if (!btn) return;
+  setProductPeriod(btn.dataset.period);
 });
 
 /* ========================= 테마 (다크/라이트) ========================= */
